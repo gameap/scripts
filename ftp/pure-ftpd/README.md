@@ -39,7 +39,7 @@ service pure-ftpd start
 Copy `ftp.sh` to your work directory (default `/srv/gameap`)
 You can download `ftp.sh` use wget:
 ```bash
-wget -O /srv/gameap/ftp.sh https://raw.githubusercontent.com/gameap/scripts/master/ftp/pure-ftp/ftp.sh
+wget -O /srv/gameap/ftp.sh https://raw.githubusercontent.com/gameap/scripts/master/ftp/pure-ftpd/ftp.sh
 chmod +x /srv/gameap/ftp.sh
 ```
 
