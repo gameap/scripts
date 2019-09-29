@@ -9,4 +9,4 @@ Scripts for [GameAP FTP Module](https://github.com/gameap/ftp-module)
 
 # FastDL Module
 
-Scripts for [GameAP FTP Module](https://github.com/gameap/fastdl-module)
+Scripts for [GameAP FastDL Module](https://github.com/gameap/fastdl-module)

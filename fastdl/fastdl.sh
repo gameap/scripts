@@ -6,8 +6,12 @@
 shopt -s dotglob
 [ "${DEBUG:-}" == 'true' ] && set -x
 
+SCRIPT_PATH=$(dirname $0)
+
+FASTDL_NGINX_SITE="/etc/nginx/conf.d/fastdl.conf"
 FASTDL_NGINX_PATH="/etc/nginx/fastdl.d"
-FASTDL_DB="/etc/nginx/fastdl.d/fastdl.db"
+
+FASTDL_DB="${SCRIPT_PATH}/fastdl/fastdl.db"
 
 NGINX_MAIN_CONFIG="/etc/nginx/nginx.conf"
 NGINX_PID_FILE="/run/nginx.pid"
@@ -17,9 +21,13 @@ package_updated=0
 _set_default ()
 {
     server_path=''
-    web_dir=''
-    secure_level=1
+    web_path='/srv/gameap/fastdl/public'
+    method='link'
     autoindex=0
+
+    nginx_host="0.0.0.0"
+    nginx_port="80"
+    nginx_autoindex=0
 }
 
 _parse_options ()
@@ -39,20 +47,24 @@ _parse_options ()
                 server_path="${i#*=}"
                 shift
             ;;
-            --create-method=*)
-                create_method="${i#*=}"
+            --method=*|-m=*)
+                method="${i#*=}"
                 shift
+            ;;
+            --web-path=*|-w=*)
+                web_path="${i#*=}"
             ;;
             --host=*)
-                host="${i#*=}"
+                nginx_host="${i#*=}"
                 shift
             ;;
-            --web-dir=*|-w=*)
-                web_dir="${i#*=}"
+            --port=*)
+                nginx_port="${i#*=}"
+                shift
             ;;
-#            --autoindex=*|-a=*)
-#                autoindex="${i#*=}"
-#            ;;
+            --autoindex=*|-a=*)
+                nginx_autoindex="${i#*=}"
+            ;;
         esac
     done
 }
@@ -63,10 +75,12 @@ _show_help ()
     echo 'Usage:	./fastdl.sh COMMAND [OPTIONS]'
     echo
     echo 'Options:'
-    echo '      --host=                   Host'
     echo '      --server-path=            Game Server Path'
-    echo '      --create-method=          Server resource create method [Default: link]. Available values: link, rsync, copy'
+    echo '      --method=                 Server resource create method [Default: link]. Available values: link, rsync, copy'
     echo "      --web-dir=                Web Directory. Default '/srv/gameap/fastdl/public'"
+    echo '      --host=                   FastDL web host'
+    echo '      --port=                   FastDL port'
+    echo '      --autoindex               Enable Nginx autoindex'
     echo
     echo 'Commands:'
     echo '    add        Create new fastdl for server'
@@ -185,7 +199,7 @@ _detect_os ()
     os=${os,,}
     dist=${dist,,}
 
-    echo "Detected operating system as $os/$dist."
+    # echo "Detected operating system as $os/$dist."
 }
 
 _update_packages ()
@@ -212,8 +226,8 @@ _install_packages ()
 {
     packages=("$@")
 
-    loc installer_cmd=""
-    loc installer_update_cmd=""
+    local installer_cmd=""
+    local installer_update_cmd=""
 
     if [ "${os}" = "debian" ] || [ "${os}" = "ubuntu" ]; then
         installer_cmd="apt-get -y install"
@@ -246,16 +260,12 @@ _nginx_check ()
 _nginx_process_status ()
 {
     if [ ! -f "${NGINX_PID_FILE}" ]; then
-        echo "NGINX NOT ACTIVE"
         return 1
     fi
 
     if ! kill -0 "$(cat ${NGINX_PID_FILE})" > /dev/null 2>&1; then
-        echo "NGINX NOT ACTIVE"
         return 1
     fi
-
-    echo "NGINX ACTIVE"
 
     return 0
 }
@@ -304,11 +314,10 @@ _install_nginx ()
         mkdir "${FASTDL_NGINX_PATH}"
     fi
 
-#    if [ ! -f ]
-
-#    if [ -z "$( cat ${NGINX_MAIN_CONFIG} | grep ${FASTDL_NGINX_PATH} -m 1 | head -1 )" ]; then
-#        sed -i "s/^\s*include.*nginx\/conf\.d.*$/&\n    include ${FASTDL_NGINX_PATH//\//\\/}\/\*\.conf\;/g" $NGINX_MAIN_CONFIG
-#    fi
+    if [ ! -f $FASTDL_NGINX_SITE ]; then
+      curl -o $FASTDL_NGINX_SITE https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
+      sed -i "s/^\(\s*root\s*\).*$/\1${web_path//\//\\/}\;/" $FASTDL_NGINX_SITE
+    fi
 }
 
 _install ()
@@ -345,10 +354,62 @@ _exists()
     return 1
 }
 
-_add_fastdl()
+_contents_fastdl ()
+{
+    local uuid=$(_uuid_by_path)
+
+    case ${method} in
+        link)
+            if [ ! -f "${web_path}/${uuid}" ]; then
+                ln -s "${server-path}" "${web_path}/${uuid}"
+            fi
+        ;;
+        copy)
+            if [ ! -f "${web_path}/${uuid}" ]; then
+                mkdir -p "${web_path}/${uuid}"
+            fi
+
+            cp -r "${server-path}/" "${web_path}/$(_uuid_by_path)/"
+        ;;
+        rsync)
+            if [ ! -f "${web_path}/${uuid}" ]; then
+                mkdir -p "${web_path}/${uuid}"
+            fi
+
+            rsync -avz --delete "${server-path}/" "${web_path}/$(_uuid_by_path)/"
+
+            echo "rsync method not implemented" > /dev/stderr
+            exit 1
+        ;;
+    esac
+}
+
+_rm_contents_fastdl ()
+{
+    local uuid=$(_uuid_by_path)
+    case ${method} in
+        link)
+            if [ -f "${web_path}/${uuid}" ]; then
+                rm "${web_path}/${uuid}"
+            fi
+        ;;
+        copy|rsync)
+            if [ -f "${web_path}/${uuid}" ]; then
+                rm -rf "${web_path:?}/${uuid:?}"
+            fi
+        ;;
+    esac
+}
+
+_add_fastdl ()
 {
     if [ -z "${server_path}" ]; then
         echo "Empty game server path. You should specify --server-path." >> /dev/stderr
+        exit 1
+    fi
+
+    if [ ! -d "${server_path}" ]; then
+        echo "Server path not found" >> /dev/stderr
         exit 1
     fi
 
@@ -357,16 +418,19 @@ _add_fastdl()
         exit 1
     fi
 
-    loc uuid="$(_uuid_by_path)"
-    loc nginx_conf="$FASTDL_NGINX_PATH/${uuid}.conf"
-    touch "${nginx_conf}"
+    if [ ! -d $web_path ]; then
+        mkdir -p "${web_path}"
+    fi
+
+    local uuid="$(_uuid_by_path)"
+
+    if [ ! -d "$(dirname $FASTDL_DB)" ]; then
+        mkdir "$(dirname $FASTDL_DB)"
+    fi
 
     echo "${uuid} ${server_path}" >> $FASTDL_DB
+    _contents_fastdl
 
-    # curl -o $nginx_conf https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
-    cp ./nginx-site.conf $nginx_conf
-
-    sed -i "s/^\(\s*root\s*\).*$/\1${server_path//\//\\/}\;/" $nginx_conf
     _nginx_start_or_reload
 }
 
@@ -382,10 +446,10 @@ _delete_fastdl ()
         exit 1
     fi
 
-    loc uuid="$(_uuid_by_path)"
+    sed -i "/^$(_uuid_by_path).*$/d" "${FASTDL_DB}"
 
-    sed '/${uuid}/d' $FASTDL_DB > $FASTDL_DB
-    rm "$FASTDL_NGINX_PATH/${uuid}.conf"
+    _rm_contents_fastdl
+
     _nginx_start_or_reload
 }
 
