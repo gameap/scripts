@@ -1,4 +1,4 @@
-Скрипты для модуля [GameAP FTP Module](https://github.com/gameap/fastdl-module)
+Скрипты для модуля [GameAP FastDL Module](https://github.com/gameap/fastdl-module)
 
 * [English](README.md)
 

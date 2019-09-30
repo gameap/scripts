@@ -1,4 +1,4 @@
-Scripts for [GameAP FTP Module](https://github.com/gameap/fastdl-module)
+Scripts for [GameAP FastDL Module](https://github.com/gameap/fastdl-module)
 
 * [Русский (Russian)](README.ru-RU.md)
 
