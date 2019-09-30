@@ -5,6 +5,9 @@
 
 shopt -s dotglob
 [ "${DEBUG:-}" == 'true' ] && set -x
+set -o errexit
+
+export DEBIAN_FRONTEND="noninteractive"
 
 SCRIPT_PATH=$(dirname $0)
 
@@ -17,6 +20,15 @@ NGINX_MAIN_CONFIG="/etc/nginx/nginx.conf"
 NGINX_PID_FILE="/run/nginx.pid"
 
 package_updated=0
+
+trap ctrl_c INT
+
+function ctrl_c() {
+    echo
+    echo "Exiting..."
+    echo
+    exit 130
+}
 
 _set_default ()
 {
@@ -32,7 +44,7 @@ _set_default ()
 
 _parse_options ()
 {
-  command=$1
+  command=${1:-}
   shift
 
   for i in "$@"
@@ -45,6 +57,7 @@ _parse_options ()
             ;;
             --server-path=*|-p=*)
                 server_path="${i#*=}"
+                server_path="${server_path%/}"
                 shift
             ;;
             --method=*|-m=*)
@@ -62,8 +75,8 @@ _parse_options ()
                 nginx_port="${i#*=}"
                 shift
             ;;
-            --autoindex=*|-a=*)
-                nginx_autoindex="${i#*=}"
+            --autoindex|-a)
+                nginx_autoindex="1"
             ;;
         esac
     done
@@ -75,9 +88,13 @@ _show_help ()
     echo 'Usage:	./fastdl.sh COMMAND [OPTIONS]'
     echo
     echo 'Options:'
+    echo
+    echo '    Creating/Deleting FastDL options'
     echo '      --server-path=            Game Server Path'
     echo '      --method=                 Server resource create method [Default: link]. Available values: link, rsync, copy'
     echo "      --web-dir=                Web Directory. Default '/srv/gameap/fastdl/public'"
+    echo
+    echo '    Installation options'
     echo '      --host=                   FastDL web host'
     echo '      --port=                   FastDL port'
     echo '      --autoindex               Enable Nginx autoindex'
@@ -85,10 +102,18 @@ _show_help ()
     echo 'Commands:'
     echo '    add        Create new fastdl for server'
     echo '    delete     Delete fastdl for game server'
-    echo '    install    Install all dependencies'
+    echo '    install    Install all dependencies (nginx, curl, rsync, etc.)'
     echo
     echo 'Examples:'
-    echo '      ./fastdl.sh'
+    echo '    Install:'
+    echo '        ./fastd.sh install --autoindex --host=fastdl.gameap.ru --port=1337'
+    echo
+    echo '    Create new FastDL:'
+    echo '      ./fastdl.sh add --server-path=/srv/gaemap/servers/my-cs-server/cstrike'
+    echo
+    echo '    Delete FastDL:'
+    echo '      ./fastdl.sh delete --server-path=/srv/gaemap/servers/my-cs-server/cstrike'
+    echo
 }
 
 _show_logo ()
@@ -118,7 +143,7 @@ _show_logo ()
                 #######################
                  #####          ####'
     echo
-    echo '             GameAP FastDL'
+    echo '                     GameAP FastDL'
     echo
     echo '----------------------------------------------------'
     echo
@@ -218,8 +243,6 @@ _update_packages ()
     if [ -n "${installer_update_cmd:-}" ]; then
         bash -c "${installer_update_cmd}"
     fi
-
-    echo "installer_update_cmd: ${installer_update_cmd}"
 }
 
 _install_packages ()
@@ -291,7 +314,7 @@ _curl_check ()
 
         _update_packages
 
-        if _install_packages curl; then
+        if ! _install_packages curl; then
           echo "Unable to install curl! Your base system has a problem; please check your default OS's package repositories because curl should work." >> /dev/stderr
           echo "Repository installation aborted." >> /dev/stderr
           exit 1
@@ -311,19 +334,45 @@ _install_nginx ()
     fi
 
     if [ ! -d "${FASTDL_NGINX_PATH}" ]; then
-        mkdir "${FASTDL_NGINX_PATH}"
+        mkdir -p "${FASTDL_NGINX_PATH}"
     fi
 
-    if [ ! -f $FASTDL_NGINX_SITE ]; then
-      curl -o $FASTDL_NGINX_SITE https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
-      sed -i "s/^\(\s*root\s*\).*$/\1${web_path//\//\\/}\;/" $FASTDL_NGINX_SITE
+    if [ ! -d $(dirname "${FASTDL_NGINX_SITE}") ]; then
+        mkdir -p $(dirname "${FASTDL_NGINX_SITE}")
+    fi
+
+    if [ ! -f "${FASTDL_NGINX_SITE}" ]; then
+        curl -o "${FASTDL_NGINX_SITE}" https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
+        sed -i "s/^\(\s*root\s*\).*$/\1${web_path//\//\\/}\;/" "${FASTDL_NGINX_SITE}"
+
+        if [[ ${nginx_autoindex} -gt 0 ]]; then
+            sed -i "s/^\s*location\s*\/\s*{.*$/&\n        autoindex on\;/g" "${FASTDL_NGINX_SITE}"
+        else
+            sed -i "s/^\s*location\s*\/\s*{.*$/&\n        autoindex off\;/g" "${FASTDL_NGINX_SITE}"
+        fi
+
+        if [ -n "${nginx_port}" ]; then
+            sed -i "/^\s*#*\s*listen.*$/d" "${FASTDL_NGINX_SITE}"
+            sed -i "s/^\s*server\s*{.*$/&\n    listen ${nginx_port}\;/g" "${FASTDL_NGINX_SITE}"
+        fi
+
+        if [ -n "${nginx_host}" ]; then
+            sed -i "s/^\s*server\s*{.*$/&\n    server_name ${nginx_host//./\\.}\;/g" "${FASTDL_NGINX_SITE}"
+        fi
     fi
 }
 
 _install ()
 {
+  _show_logo
   _update_packages
+  _curl_check
   _install_nginx
+
+  if [ ! -d "${web_path}" ]; then
+      mkdir -p "${web_path}"
+  fi
+
   _nginx_start_or_reload
 }
 
@@ -361,7 +410,7 @@ _contents_fastdl ()
     case ${method} in
         link)
             if [ ! -f "${web_path}/${uuid}" ]; then
-                ln -s "${server-path}" "${web_path}/${uuid}"
+                ln -s "${server_path}/" "${web_path}/${uuid}"
             fi
         ;;
         copy)
@@ -389,7 +438,7 @@ _rm_contents_fastdl ()
     local uuid=$(_uuid_by_path)
     case ${method} in
         link)
-            if [ -f "${web_path}/${uuid}" ]; then
+            if [ -s "${web_path}/${uuid}" ]; then
                 rm "${web_path}/${uuid}"
             fi
         ;;
@@ -432,6 +481,19 @@ _add_fastdl ()
     _contents_fastdl
 
     _nginx_start_or_reload
+
+    parsed_host=$(cat "${FASTDL_NGINX_SITE}" | grep 'server_name' -m 1 | head -1 | awk '{print $2}' | sed 's/;$//')
+    parsed_host=${parsed_host:-'your-host'}
+
+    parsed_port=$(cat "${FASTDL_NGINX_SITE}" | grep 'listen' -m 1 | head -1 | awk '{print $2}' | sed 's/;$//')
+
+    if [ -n "${parsed_port}" ] && [ "${parsed_port}" -ne 80 ]; then
+        fastdl_web_path="http://${parsed_host}:${parsed_port}/${uuid}/"
+    else
+        fastdl_web_path="http://${parsed_host}:${parsed_port}/${uuid}/"
+    fi
+
+    echo "FastDL added: ${fastdl_web_path}"
 }
 
 _delete_fastdl ()
@@ -451,6 +513,8 @@ _delete_fastdl ()
     _rm_contents_fastdl
 
     _nginx_start_or_reload
+
+    echo "FastDL deleted successfully"
 }
 
 _run ()
@@ -460,7 +524,7 @@ _run ()
         "add"|"create") _add_fastdl;;
         "delete"|"remove") _delete_fastdl;;
         "help" | "--help" | "-h" | "") _show_help;;
-        *) echo "Invalid command";;
+        *) echo "Invalid command. Add --help option for details" >> /dev/stderr;;
     esac
 }
 
@@ -470,6 +534,12 @@ main ()
     _run
 }
 
-_set_default
-_parse_options "$@"
+if [ $# -gt 0 ]; then
+    _set_default
+    _parse_options "$@"
+else
+    echo "Empty command. Add --help option for details." >> /dev/stderr;
+    exit 1;
+fi
+
 main
