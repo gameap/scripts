@@ -90,9 +90,6 @@ _parse_options ()
             ;;
         esac
     done
-
-    echo ${nginx_autoindex}
-    exit
 }
 
 _show_help ()
