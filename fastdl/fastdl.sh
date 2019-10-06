@@ -271,6 +271,15 @@ _install_packages ()
     echo
 }
 
+_rsync_check ()
+{
+    if command -v rsync > /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 _nginx_check ()
 {
     if command -v nginx > /dev/null; then
@@ -331,6 +340,10 @@ _install_nginx ()
 
     if ! _nginx_check; then
         _install_packages nginx
+    fi
+
+    if ! _rsync_check; then
+        _install_packages rsync
     fi
 
     if [ ! -d "${FASTDL_NGINX_PATH}" ]; then
@@ -418,17 +431,34 @@ _contents_fastdl ()
                 mkdir -p "${web_path}/${uuid}"
             fi
 
-            cp -r "${server-path}/" "${web_path}/$(_uuid_by_path)/"
+            cp -r "${server_path}/" "${web_path}/${uuid}/"
         ;;
         rsync)
             if [ ! -f "${web_path}/${uuid}" ]; then
                 mkdir -p "${web_path}/${uuid}"
+                chmod 755 "${web_path}/${uuid}"
             fi
 
-            rsync -avz --delete "${server-path}/" "${web_path}/$(_uuid_by_path)/"
-
-            echo "rsync method not implemented" > /dev/stderr
-            exit 1
+            rsync -rtDvz --delete \
+                --include '*/' \
+                --include '*.pak' \
+                --include '*.wad' \
+                --include '*.bsp' \
+                --include '*.spr' \
+                --include '*.res' \
+                --include '*.wav' \
+                --include '*.mp3' \
+                --include '*.jpg' \
+                --include '*.bmp' \
+                --include '*.tga' \
+                --include '*.txt' \
+                --include '*.nav' \
+                --exclude '*addons' \
+                --exclude '*dlls' \
+                --exclude '*logs' \
+                --exclude '*bin' \
+                --exclude '*' \
+                "${server_path}/" "${web_path}/${uuid}/" 2>/dev/null
         ;;
     esac
 }
@@ -436,14 +466,15 @@ _contents_fastdl ()
 _rm_contents_fastdl ()
 {
     local uuid=$(_uuid_by_path)
+
     case ${method} in
-        link)
+        "link")
             if [ -s "${web_path}/${uuid}" ]; then
                 rm "${web_path}/${uuid}"
             fi
         ;;
-        copy|rsync)
-            if [ -f "${web_path}/${uuid}" ]; then
+        "rsync" | "copy")
+            if [ -d "${web_path}/${uuid}" ]; then
                 rm -rf "${web_path:?}/${uuid:?}"
             fi
         ;;
