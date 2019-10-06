@@ -75,11 +75,24 @@ _parse_options ()
                 nginx_port="${i#*=}"
                 shift
             ;;
-            --autoindex|-a)
-                nginx_autoindex="1"
+            --autoindex*|-a*)
+                nginx_autoindex="${i#*=}"
+
+                if [ -z ${nginx_autoindex} ]; then
+                    nginx_autoindex=1
+                fi;
+
+                if [[ ! ${nginx_autoindex} =~ ^[0-9]+$ ]] ; then
+                   nginx_autoindex=1
+                fi
+
+                shift
             ;;
         esac
     done
+
+    echo ${nginx_autoindex}
+    exit
 }
 
 _show_help ()
@@ -334,7 +347,7 @@ _curl_check ()
 
 _install_nginx ()
 {
-    if [ "${os}" == "centos" ]; then
+    if [[ "${os}" == "centos" ]]; then
         _install_packages epel-release
     fi
 
@@ -346,15 +359,15 @@ _install_nginx ()
         _install_packages rsync
     fi
 
-    if [ ! -d "${FASTDL_NGINX_PATH}" ]; then
+    if [[ ! -d "${FASTDL_NGINX_PATH}" ]]; then
         mkdir -p "${FASTDL_NGINX_PATH}"
     fi
 
-    if [ ! -d $(dirname "${FASTDL_NGINX_SITE}") ]; then
+    if [[ ! -d $(dirname "${FASTDL_NGINX_SITE}") ]]; then
         mkdir -p $(dirname "${FASTDL_NGINX_SITE}")
     fi
 
-    if [ ! -f "${FASTDL_NGINX_SITE}" ]; then
+    if [[ ! -f "${FASTDL_NGINX_SITE}" ]]; then
         curl -o "${FASTDL_NGINX_SITE}" https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
         sed -i "s/^\(\s*root\s*\).*$/\1${web_path//\//\\/}\;/" "${FASTDL_NGINX_SITE}"
 
