@@ -463,10 +463,10 @@ _contents_fastdl ()
                 --include '*.tga' \
                 --include '*.txt' \
                 --include '*.nav' \
-                --exclude '*addons' \
-                --exclude '*dlls' \
-                --exclude '*logs' \
-                --exclude '*bin' \
+                --exclude 'addons' \
+                --exclude 'dlls' \
+                --exclude 'logs' \
+                --exclude 'bin' \
                 --exclude '*' \
                 "${server_path}/" "${web_path}/${uuid}/" 2>/dev/null
         ;;
@@ -528,10 +528,10 @@ _add_fastdl ()
 
     parsed_port=$(cat "${FASTDL_NGINX_SITE}" | grep 'listen' -m 1 | head -1 | awk '{print $2}' | sed 's/;$//')
 
-    if [ -n "${parsed_port}" ] && [ "${parsed_port}" -ne 80 ]; then
+    if [[ -n "${parsed_port}" ]] && [[ "${parsed_port}" -ne "80" ]]; then
         fastdl_web_path="http://${parsed_host}:${parsed_port}/${uuid}/"
     else
-        fastdl_web_path="http://${parsed_host}:${parsed_port}/${uuid}/"
+        fastdl_web_path="http://${parsed_host}/${uuid}/"
     fi
 
     echo "FastDL added: ${fastdl_web_path}"

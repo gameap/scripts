@@ -48,7 +48,7 @@ chmod +x fastdl.sh
 fastdl.gameap.ru укажите свой хост.
 
 ```
-./fastd.sh install --autoindex --host=fastdl.gameap.ru --port=1337
+./fastdl.sh install --autoindex --host=fastdl.gameap.ru --port=1337
 ```
 
 ### Добавить FastDL

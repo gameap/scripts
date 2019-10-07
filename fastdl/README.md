@@ -47,7 +47,7 @@ chmod +x fastdl.sh
 Install and configure packages (nginx etc.).
 
 ```
-./fastd.sh install --autoindex --host=fastdl.gameap.ru --port=1337
+./fastdl.sh install --autoindex --host=fastdl.gameap.ru --port=1337
 ```
 
 ### Add new FastDL
