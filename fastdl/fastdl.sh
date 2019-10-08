@@ -62,6 +62,8 @@ _set_default ()
     nginx_host="0.0.0.0"
     nginx_port="80"
     nginx_autoindex=0
+
+    rsync_remote=""
 }
 
 _parse_options ()
@@ -110,6 +112,10 @@ _parse_options ()
 
                 shift
             ;;
+            --rsync-remote=*)
+                rsync_remote="${i#*=}"
+                shift
+            ;;
         esac
     done
 }
@@ -125,6 +131,7 @@ _show_help ()
     echo '      --server-path=            Game Server Path'
     echo '      --method=                 Server resource create method [Default: rsync]. Available values: link, rsync, copy'
     echo "      --web-dir=                Web Directory. Default '/srv/gameap/fastdl/public'"
+    echo "      --rsync-remote=           Remote rsync host"
     echo
     echo '    Installation options'
     echo '      --host=                   FastDL web host'
@@ -200,7 +207,7 @@ _detect_os ()
     if [ -e /etc/lsb-release ]; then
         . /etc/lsb-release
 
-        if [ "${ID:-}" = "raspbian" ]; then
+        if [[ "${ID:-}" = "raspbian" ]]; then
             os=${ID}
             dist=$(cut --delimiter='.' -f1 /etc/debian_version)
         else
@@ -476,7 +483,13 @@ _contents_fastdl ()
                 chmod 755 "${web_path}/${uuid}"
             fi
 
-            bash -c "${RSYNC_PREFIX_CMD} ${server_path}/ ${web_path}/${uuid}/" 2>/dev/null
+            if [[ -n "${rsync_remote:-}" ]]; then
+                rsync_destination="${rsync_remote:-}/"
+            else
+                rsync_destination="${web_path}/${uuid}/"
+            fi
+
+            bash -c "${RSYNC_PREFIX_CMD} ${server_path}/ ${rsync_destination}" 2>/dev/null
         ;;
     esac
 }
@@ -487,12 +500,12 @@ _rm_contents_fastdl ()
 
     case ${method} in
         "link")
-            if [ -s "${web_path}/${uuid}" ]; then
+            if [[ -s "${web_path}/${uuid}" ]]; then
                 rm "${web_path}/${uuid}"
             fi
         ;;
         "rsync" | "copy")
-            if [ -d "${web_path}/${uuid}" ]; then
+            if [[ -d "${web_path}/${uuid}" ]]; then
                 rm -rf "${web_path:?}/${uuid:?}"
             fi
         ;;
@@ -501,12 +514,12 @@ _rm_contents_fastdl ()
 
 _add_fastdl ()
 {
-    if [ -z "${server_path}" ]; then
+    if [[ -z "${server_path}" ]]; then
         echo "Empty game server path. You should specify --server-path." >> /dev/stderr
         exit 1
     fi
 
-    if [ ! -d "${server_path}" ]; then
+    if [[ ! -d "${server_path}" ]]; then
         echo "Server path not found" >> /dev/stderr
         exit 1
     fi
@@ -594,7 +607,13 @@ _sync_fastdl ()
                 cp -r ${path}/ ${web_path}/${uuid}/
             ;;
             rsync)
-                bash -c "${RSYNC_PREFIX_CMD} ${path}/ ${web_path}/${uuid}/" 2>/dev/null
+                if [[ -n "${rsync_remote:-}" ]]; then
+                    rsync_destination="${rsync_remote:-}/"
+                else
+                    rsync_destination="${web_path}/${uuid}/"
+                fi
+
+                bash -c "${RSYNC_PREFIX_CMD} ${path}/ ${rsync_destination}" 2>/dev/null
             ;;
             *)
                 return
