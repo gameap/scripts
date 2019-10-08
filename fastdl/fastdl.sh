@@ -19,6 +19,28 @@ FASTDL_DB="${SCRIPT_PATH}/fastdl/fastdl.db"
 NGINX_MAIN_CONFIG="/etc/nginx/nginx.conf"
 NGINX_PID_FILE="/run/nginx.pid"
 
+RSYNC_PREFIX_CMD="rsync -rtDvz --delete \
+    --prune-empty-dirs \
+    --exclude '*dlls/' \
+    --exclude '*logs/' \
+    --exclude '*bin/'  \
+    --exclude '*addons/'  \
+    --exclude '*cfg/'  \
+    --include '*/'  \
+    --include '*.pak'   \
+    --include '*.wad'  \
+    --include '*.bsp'  \
+    --include '*.spr'  \
+    --include '*.res'  \
+    --include '*.wav'  \
+    --include '*.mp3'  \
+    --include '*.jpg'  \
+    --include '*.bmp'  \
+    --include '*.tga'  \
+    --include '*.txt'  \
+    --include '*.nav'  \
+    --exclude '*'"
+
 package_updated=0
 
 trap ctrl_c INT
@@ -34,7 +56,7 @@ _set_default ()
 {
     server_path=''
     web_path='/srv/gameap/fastdl/public'
-    method='link'
+    method='rsync'
     autoindex=0
 
     nginx_host="0.0.0.0"
@@ -99,9 +121,9 @@ _show_help ()
     echo
     echo 'Options:'
     echo
-    echo '    Creating/Deleting FastDL options'
+    echo '    Creating/Deleting/Sync FastDL options'
     echo '      --server-path=            Game Server Path'
-    echo '      --method=                 Server resource create method [Default: link]. Available values: link, rsync, copy'
+    echo '      --method=                 Server resource create method [Default: rsync]. Available values: link, rsync, copy'
     echo "      --web-dir=                Web Directory. Default '/srv/gameap/fastdl/public'"
     echo
     echo '    Installation options'
@@ -113,16 +135,21 @@ _show_help ()
     echo '    add        Create new fastdl for server'
     echo '    delete     Delete fastdl for game server'
     echo '    install    Install all dependencies (nginx, curl, rsync, etc.)'
+    echo '    sync       Sync all exists fastdl'
     echo
     echo 'Examples:'
     echo '    Install:'
-    echo '        ./fastd.sh install --autoindex --host=fastdl.gameap.ru --port=1337'
+    echo '        ./fastdl.sh install --autoindex --host=fastdl.gameap.ru --port=1337'
     echo
     echo '    Create new FastDL:'
     echo '      ./fastdl.sh add --server-path=/srv/gaemap/servers/my-cs-server/cstrike'
     echo
+    echo '    Sync FastDL:'
+    echo '      ./fastdl.sh sync --method=rsync'
+    echo
     echo '    Delete FastDL:'
     echo '      ./fastdl.sh delete --server-path=/srv/gaemap/servers/my-cs-server/cstrike'
+    echo
     echo
 }
 
@@ -449,26 +476,7 @@ _contents_fastdl ()
                 chmod 755 "${web_path}/${uuid}"
             fi
 
-            rsync -rtDvz --delete \
-                --include '*/' \
-                --include '*.pak' \
-                --include '*.wad' \
-                --include '*.bsp' \
-                --include '*.spr' \
-                --include '*.res' \
-                --include '*.wav' \
-                --include '*.mp3' \
-                --include '*.jpg' \
-                --include '*.bmp' \
-                --include '*.tga' \
-                --include '*.txt' \
-                --include '*.nav' \
-                --exclude 'addons' \
-                --exclude 'dlls' \
-                --exclude 'logs' \
-                --exclude 'bin' \
-                --exclude '*' \
-                "${server_path}/" "${web_path}/${uuid}/" 2>/dev/null
+            bash -c "${RSYNC_PREFIX_CMD} ${server_path}/ ${web_path}/${uuid}/" 2>/dev/null
         ;;
     esac
 }
@@ -558,12 +566,50 @@ _delete_fastdl ()
     echo "FastDL deleted successfully"
 }
 
+_sync_fastdl ()
+{
+    if [[ ! -f "${FASTDL_DB}" ]]; then
+        return
+    fi
+
+    local command=""
+    local uuid=""
+    local path=""
+
+    readarray db_entries < "${FASTDL_DB}"
+
+    for (( i=0; i<${#db_entries[@]}; i++ ))
+    do
+        entry=(${db_entries[$i]})
+
+        uuid=${entry[0]}
+        path=${entry[1]}
+
+        echo
+        echo "Sync: ${path}"
+        echo
+
+        case ${method} in
+            copy)
+                cp -r ${path}/ ${web_path}/${uuid}/
+            ;;
+            rsync)
+                bash -c "${RSYNC_PREFIX_CMD} ${path}/ ${web_path}/${uuid}/" 2>/dev/null
+            ;;
+            *)
+                return
+            ;;
+        esac
+    done
+}
+
 _run ()
 {
     case $command in
         "install") _install;;
         "add"|"create") _add_fastdl;;
         "delete"|"remove") _delete_fastdl;;
+        "sync") _sync_fastdl;;
         "help" | "--help" | "-h" | "") _show_help;;
         *) echo "Invalid command. Add --help option for details" >> /dev/stderr;;
     esac
