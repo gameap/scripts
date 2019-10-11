@@ -6,53 +6,18 @@
 - [Install ftp script](#install-ftp-script)
 - [Setting up GameAP](#setting-up-gameap)
 
-## Setup ProFTPd
-
-Example for Debian 9 (Stretch)
-
-### Install ProFTPd
-
-```bash
-apt install proftpd
-```
-
-### Enable virtual users
-
-Open proftpd configuration:
-
-```bash
-nano /etc/proftpd/proftpd.conf
-```
-
-Set parameters:
-```
-DefaultRoot ~
-RequireValidShell off
-AuthUserFile /etc/proftpd/ftpd.passwd
-AuthGroupFile /etc/proftpd/ftpd.group
-AuthOrder mod_auth_file.c
-```
-
-### Make Auth Files
-
-```bash
-touch /etc/proftpd/ftpd.passwd
-touch /etc/proftpd/ftpd.group
-```
-
-### Run proftpd service
-
-```bash
-service proftpd start
-```
-
-## Install ftp script
+## Install and configure ProFTPd
 
 Copy `ftp.sh` to your work directory (default `/srv/gameap`)
 You can download `ftp.sh` use wget:
 ```bash
 wget -O /srv/gameap/ftp.sh https://raw.githubusercontent.com/gameap/scripts/master/ftp/proftpd/ftp.sh
 chmod +x /srv/gameap/ftp.sh
+```
+
+Execute autoinstallation command:
+```
+/srv/gameap/ftp.sh install
 ```
 
 ## Setting up GameAP 
