@@ -84,8 +84,11 @@ _parse_options ()
             ;;
             --user=*)
                 user="${i#*=}"
-                new_acc_uid=$(id -u $user)
-                new_acc_gid=$(id -g $user)
+
+                if [[ -n "${user}" ]] && [[ "$(id -u $user)" -gt "0" ]]; then
+                    new_acc_uid=$(id -u $user)
+                    new_acc_gid=$(id -g $user)
+                fi
             ;;
         esac
     done
