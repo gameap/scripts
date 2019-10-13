@@ -30,6 +30,7 @@ RSYNC_PREFIX_CMD="rsync -rtDvz --delete \
     --include '*.pak'   \
     --include '*.wad'  \
     --include '*.bsp'  \
+    --include '*.mdl'  \
     --include '*.spr'  \
     --include '*.res'  \
     --include '*.wav'  \
