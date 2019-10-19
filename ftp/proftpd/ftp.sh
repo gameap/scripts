@@ -21,7 +21,7 @@ _set_default ()
 
 _set_cfg_paths ()
 {
-    if [[ "${os}" = "debian" ]]; then
+    if [[ "${os}" = "debian" ]] || [[ "${os}" = "ubuntu" ]]; then
         proftpd_config_path=/etc/proftpd/proftpd.conf
         proftpd_passwd_path=/etc/proftpd/ftpd.passwd
         proftpd_group_path=/etc/proftpd/ftpd.group
@@ -30,7 +30,7 @@ _set_cfg_paths ()
         proftpd_passwd_path=/etc/ftpd.passwd
         proftpd_group_path=/etc/ftpd.group
     else
-        echo 'Unknown OS' >> /dev/stderr
+        echo "Unknown OS: ${os}" >> /dev/stderr
         exit 1
     fi
 }
@@ -155,6 +155,7 @@ _detect_os ()
 
     else
         _unknown_os
+        exit
     fi
 
     if [[ -z "$dist" ]]; then
