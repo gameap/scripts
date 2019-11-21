@@ -349,6 +349,11 @@ _nginx_process_status ()
 
 _nginx_start_or_reload ()
 {
+    if command -v nginx > /dev/null; then
+        echo "Nginx not found" >> /dev/stderr
+        exit
+    fi
+
     if ! _nginx_process_status; then
         nginx
     else
@@ -485,7 +490,7 @@ _contents_fastdl ()
             fi
 
             if [[ -n "${rsync_remote:-}" ]]; then
-                rsync_destination="${rsync_remote:-}/"
+                rsync_destination="${rsync_remote:-}/${uuid}"
             else
                 rsync_destination="${web_path}/${uuid}/"
             fi
@@ -543,12 +548,17 @@ _add_fastdl ()
     echo "${uuid} ${server_path}" >> $FASTDL_DB
     _contents_fastdl
 
-    _nginx_start_or_reload
+    if [[ -z "${rsync_remote:-}" ]]; then
+        _nginx_start_or_reload
+        parsed_host=$(cat "${FASTDL_NGINX_SITE}" | grep 'server_name' -m 1 | head -1 | awk '{print $2}' | sed 's/;$//')
+        parsed_host=${parsed_host:-'your-host'}
 
-    parsed_host=$(cat "${FASTDL_NGINX_SITE}" | grep 'server_name' -m 1 | head -1 | awk '{print $2}' | sed 's/;$//')
-    parsed_host=${parsed_host:-'your-host'}
+        parsed_port=$(cat "${FASTDL_NGINX_SITE}" | grep 'listen' -m 1 | head -1 | awk '{print $2}' | sed 's/;$//')
 
-    parsed_port=$(cat "${FASTDL_NGINX_SITE}" | grep 'listen' -m 1 | head -1 | awk '{print $2}' | sed 's/;$//')
+
+    else
+        parsed_host=${rsync_remote:-}
+    fi
 
     if [[ -n "${parsed_port}" ]] && [[ "${parsed_port}" -ne "80" ]]; then
         fastdl_web_path="http://${parsed_host}:${parsed_port}/${uuid}/"
