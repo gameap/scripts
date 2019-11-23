@@ -349,7 +349,7 @@ _nginx_process_status ()
 
 _nginx_start_or_reload ()
 {
-    if command -v nginx > /dev/null; then
+    if ! command -v nginx > /dev/null; then
         echo "Nginx not found" >> /dev/stderr
         exit
     fi
