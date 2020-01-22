@@ -40,6 +40,8 @@ RSYNC_PREFIX_CMD="rsync -rtDvz --delete \
     --include '*.tga'  \
     --include '*.txt'  \
     --include '*.nav'  \
+    --include '*.vtf'  \
+    --include '*.vmt'  \
     --exclude '*'"
 
 package_updated=0
