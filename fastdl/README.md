@@ -11,7 +11,7 @@ Scripts for [GameAP FastDL Module](https://github.com/gameap/fastdl-module)
 * Copy `fastdl.sh` to your work directory (default `/srv/gameap`):
 ```
 cd /srv/gameap
-wget https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
+wget https://raw.githubusercontent.com/gameap/scripts/master/fastdl/fastdl.sh
 ```
 
 * Set execute permissions:

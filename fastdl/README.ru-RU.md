@@ -11,7 +11,7 @@
 * Скопируйте `fastdl.sh` в ваш рабочий каталог (по умолчанию `/srv/gameap`):
 ```
 cd /srv/gameap
-wget https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
+wget https://raw.githubusercontent.com/gameap/scripts/master/fastdl/fastdl.sh
 ```
 
 * Установите права на выполнение:
