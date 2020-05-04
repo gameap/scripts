@@ -65,3 +65,13 @@ Delete FastDL for CS server. Server files example root directory: `/srv/gaemap/s
 ```
 ./fastdl.sh delete --server-path=/srv/gaemap/servers/my-cs-server/cstrike
 ```
+
+## Exit codes
+
+| Exit code |          Description             |
+|-----------|----------------------------------|
+|     0     | Success                          |
+|     1     | Common error                     |
+|     2     | Critical error                   |
+|     10    | FastDL account is already exists |
+|     11    | FastDL account doesn't exists    |

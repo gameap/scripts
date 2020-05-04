@@ -534,7 +534,7 @@ _add_fastdl ()
 
     if _exists ; then
         echo "FastDL account is already exists"  >> /dev/stderr
-        exit 1
+        exit 10
     fi
 
     if [ ! -d $web_path ]; then
@@ -573,14 +573,14 @@ _add_fastdl ()
 
 _delete_fastdl ()
 {
-    if [ -z "$server_path" ]; then
+    if [[ -z "$server_path" ]]; then
         echo "Empty game server path. You should specify --server-path." >> /dev/stderr
         exit 1
     fi
 
     if ! _exists ; then
         echo "FastDL account doesn't exists"
-        exit 1
+        exit 11
     fi
 
     sed -i "/^$(_uuid_by_path).*$/d" "${FASTDL_DB}"
@@ -653,7 +653,7 @@ main ()
     _run
 }
 
-if [ $# -gt 0 ]; then
+if [[ $# -gt 0 ]]; then
     _set_default
     _parse_options "$@"
 else

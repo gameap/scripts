@@ -68,3 +68,13 @@ fastdl.gameap.ru укажите свой хост.
 ```
 ./fastdl.sh delete --server-path=/srv/gaemap/servers/my-cs-server/cstrike
 ```
+
+## Коды возврата
+
+| Exit code |          Description             |
+|-----------|----------------------------------|
+|     0     | Успех                            |
+|     1     | Ошибка                           |
+|     2     | Критическая ошибка               |
+|     10    | FastDL аккаунт существует        |
+|     11    | FastDL аккаунта не существует    |
