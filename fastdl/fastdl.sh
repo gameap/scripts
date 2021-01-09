@@ -16,7 +16,6 @@ FASTDL_NGINX_PATH="/etc/nginx/fastdl.d"
 
 FASTDL_DB="${SCRIPT_PATH}/fastdl/fastdl.db"
 
-NGINX_MAIN_CONFIG="/etc/nginx/nginx.conf"
 NGINX_PID_FILE="/run/nginx.pid"
 
 RSYNC_PREFIX_CMD="rsync -rtDvz --delete \
@@ -60,7 +59,6 @@ _set_default ()
     server_path=''
     web_path='/srv/gameap/fastdl/public'
     method='rsync'
-    autoindex=0
 
     nginx_host="0.0.0.0"
     nginx_port="80"
@@ -205,7 +203,7 @@ _unknown_os ()
 _detect_os ()
 {
     os=""
-    dist=""
+    local dist=""
 
     if [ -e /etc/lsb-release ]; then
         . /etc/lsb-release
@@ -280,7 +278,8 @@ _update_packages ()
         return
     fi
 
-    installer_update_cmd=""
+    local installer_update_cmd
+
     if [ "${os}" = "debian" ] || [ "${os}" = "ubuntu" ]; then
         installer_update_cmd="apt-get -y update"
     elif [ "${os}" == "centos" ]; then
@@ -294,10 +293,10 @@ _update_packages ()
 
 _install_packages ()
 {
+    local packages
     packages=("$@")
 
     local installer_cmd=""
-    local installer_update_cmd=""
 
     if [ "${os}" = "debian" ] || [ "${os}" = "ubuntu" ]; then
         installer_cmd="apt-get -y install"
@@ -308,7 +307,7 @@ _install_packages ()
     echo
     echo -n "Installing ${packages[*]}... "
 
-    if ! ${installer_cmd} ${packages[*]} ; then
+    if ! ${installer_cmd} "${packages[*]}" ; then
         echo "Unable to install ${packages[*]}." >> /dev/stderr
         echo "Package installation aborted." >> /dev/stderr
         exit 1
@@ -403,7 +402,7 @@ _install_nginx ()
     fi
 
     if [[ ! -d $(dirname "${FASTDL_NGINX_SITE}") ]]; then
-        mkdir -p $(dirname "${FASTDL_NGINX_SITE}")
+        mkdir -p "$(dirname ${FASTDL_NGINX_SITE})"
     fi
 
     curl -o "${FASTDL_NGINX_SITE}" https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
@@ -442,6 +441,7 @@ _install ()
 
 _uuid_by_path ()
 {
+    local sha512path
     sha512path=$(sha512sum <<< "${server_path}")
     echo "${sha512path:0:8}-${sha512path:8:4}-${sha512path:12:4}-${sha512path:8:12}"
 }
@@ -455,7 +455,7 @@ _exists()
 {
     if [ -f "${FASTDL_DB}" ]; then
         local
-        if [ -n "$(grep $(_uuid_by_path) -m 1 ${FASTDL_DB} | head -1 )" ]; then
+        if [ -n "$(grep "$(_uuid_by_path)" -m 1 "${FASTDL_DB}" | head -1 )" ]; then
             # Exist
             return 0
         else
@@ -469,7 +469,8 @@ _exists()
 
 _contents_fastdl ()
 {
-    local uuid=$(_uuid_by_path)
+    local uuid
+    uuid=$(_uuid_by_path)
 
     case ${method} in
         link)
@@ -503,7 +504,8 @@ _contents_fastdl ()
 
 _rm_contents_fastdl ()
 {
-    local uuid=$(_uuid_by_path)
+    local uuid
+    uuid=$(_uuid_by_path)
 
     case ${method} in
         "link")
@@ -521,6 +523,9 @@ _rm_contents_fastdl ()
 
 _add_fastdl ()
 {
+    local uuid
+    uuid="$(_uuid_by_path)"
+
     if [[ -z "${server_path}" ]]; then
         echo "Empty game server path. You should specify --server-path." >> /dev/stderr
         exit 1
@@ -536,11 +541,9 @@ _add_fastdl ()
         exit 10
     fi
 
-    if [ ! -d $web_path ]; then
+    if [ ! -d "$web_path" ]; then
         mkdir -p "${web_path}"
     fi
-
-    local uuid="$(_uuid_by_path)"
 
     if [ ! -d "$(dirname $FASTDL_DB)" ]; then
         mkdir "$(dirname $FASTDL_DB)"
@@ -597,7 +600,6 @@ _sync_fastdl ()
         return
     fi
 
-    local command=""
     local uuid=""
     local path=""
 
@@ -616,7 +618,7 @@ _sync_fastdl ()
 
         case ${method} in
             copy)
-                cp -r ${path}/ ${web_path}/${uuid}/
+                cp -r "${path}/" "${web_path}/${uuid}/"
             ;;
             rsync)
                 if [[ -n "${rsync_remote:-}" ]]; then
