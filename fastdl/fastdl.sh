@@ -406,9 +406,7 @@ _install_nginx ()
         mkdir -p $(dirname "${FASTDL_NGINX_SITE}")
     fi
 
-    if [[ ! -f "${FASTDL_NGINX_SITE}" ]]; then
-        curl -o "${FASTDL_NGINX_SITE}" https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
-    fi
+    curl -o "${FASTDL_NGINX_SITE}" https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
 
     sed -i "s/^\(\s*root\s*\).*$/\1${web_path//\//\\/}\;/" "${FASTDL_NGINX_SITE}"
 
