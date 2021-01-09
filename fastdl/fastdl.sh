@@ -408,22 +408,23 @@ _install_nginx ()
 
     if [[ ! -f "${FASTDL_NGINX_SITE}" ]]; then
         curl -o "${FASTDL_NGINX_SITE}" https://raw.githubusercontent.com/gameap/scripts/master/fastdl/nginx-site.conf
-        sed -i "s/^\(\s*root\s*\).*$/\1${web_path//\//\\/}\;/" "${FASTDL_NGINX_SITE}"
+    fi
 
-        if [[ ${nginx_autoindex} -gt 0 ]]; then
-            sed -i "s/^\s*location\s*\/\s*{.*$/&\n        autoindex on\;/g" "${FASTDL_NGINX_SITE}"
-        else
-            sed -i "s/^\s*location\s*\/\s*{.*$/&\n        autoindex off\;/g" "${FASTDL_NGINX_SITE}"
-        fi
+    sed -i "s/^\(\s*root\s*\).*$/\1${web_path//\//\\/}\;/" "${FASTDL_NGINX_SITE}"
 
-        if [ -n "${nginx_port}" ]; then
-            sed -i "/^\s*#*\s*listen.*$/d" "${FASTDL_NGINX_SITE}"
-            sed -i "s/^\s*server\s*{.*$/&\n    listen ${nginx_port}\;/g" "${FASTDL_NGINX_SITE}"
-        fi
+    if [[ ${nginx_autoindex} -gt 0 ]]; then
+        sed -i "s/^\s*location\s*\/\s*{.*$/&\n        autoindex on\;/g" "${FASTDL_NGINX_SITE}"
+    else
+        sed -i "s/^\s*location\s*\/\s*{.*$/&\n        autoindex off\;/g" "${FASTDL_NGINX_SITE}"
+    fi
 
-        if [ -n "${nginx_host}" ]; then
-            sed -i "s/^\s*server\s*{.*$/&\n    server_name ${nginx_host//./\\.}\;/g" "${FASTDL_NGINX_SITE}"
-        fi
+    if [ -n "${nginx_port}" ]; then
+        sed -i "/^\s*#*\s*listen.*$/d" "${FASTDL_NGINX_SITE}"
+        sed -i "s/^\s*server\s*{.*$/&\n    listen ${nginx_port}\;/g" "${FASTDL_NGINX_SITE}"
+    fi
+
+    if [ -n "${nginx_host}" ]; then
+        sed -i "s/^\s*server\s*{.*$/&\n    server_name ${nginx_host//./\\.}\;/g" "${FASTDL_NGINX_SITE}"
     fi
 }
 
