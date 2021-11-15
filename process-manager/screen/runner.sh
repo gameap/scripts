@@ -309,6 +309,7 @@ main()
             ;;
         *)
             echo "Unknown type"
+            exit 1
             ;;
     esac
 }
