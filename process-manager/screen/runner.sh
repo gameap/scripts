@@ -9,10 +9,16 @@
 #
 # Данный скрипт используется для управления игровыми серверами через АдминПанель
 #
+# Команды
+#    start             Запуск
+#    stop              Остановка
+#    restart           Перезапуск
+#    status            Статус
+#    get_console       Получение консоли
+#    send_command      Отправка команды
 #
 # Параметры
 #
-# -t <type> 		(start|stop|restart|status|get_console|send_command)
 # -d <dir>			директория относительно скрипта
 # -n <screen_name>	имя screen
 # -i <ip>
@@ -24,8 +30,8 @@
 # -n <max speed>	лимит на использование пропускной способности
 #
 # Examples:
-# ./server.sh -t start -d /home/hl_server -n screen_hldm -i 127.0.0.1 -p 27015 -c "hlds_run -game valve +ip 127.0.0.1 +port 27015 +map crossfire"
-# ./server.sh -t get_console -n hldm -u usver
+# ./server.sh start -d /home/hl_server -n screen_hldm -i 127.0.0.1 -p 27015 -c "hlds_run -game valve +ip 127.0.0.1 +port 27015 +map crossfire"
+# ./server.sh get_console -n hldm -u usver
 #
 
 # Версия
@@ -105,7 +111,7 @@ server_stop()
        echo "Server stopped"
        return 0
     else
-       echo "Coulnd't find a running server"
+       echo "Couldn't find a running server"
        return 1
     fi
 }
@@ -162,17 +168,15 @@ cpu_limit()
 
 parse_options()
 {
+    TYPE=${1:-}
+    shift
+
     POSITIONAL=()
     while [[ $# -gt 0 ]]
     do
         key="$1"
 
         case $key in
-            -t|--type)
-                TYPE="$2"
-                shift
-                shift
-            ;;
             -d|--dir)
                 DIR="$2"
                 shift
