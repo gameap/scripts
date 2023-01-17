@@ -99,13 +99,13 @@ _show_help() {
 }
 
 _run_command() {
-    local cmd="$*"
+    local cmd="$@"
     last_executed=$cmd
 
     cd "${option_dir}" || return 1
 
     if _run_as_user; then
-        if su "${option_user}" -c "${cmd}"; then
+        if su "${option_user}" -c '$*' -- -- ${cmd}; then
             return 0
         else
             return 1
@@ -117,8 +117,6 @@ _run_command() {
             return 1
         fi
     fi
-
-    cd - &> /dev/null || return 1
 }
 
 _run_as_user() {
@@ -126,11 +124,11 @@ _run_as_user() {
         return 1
     fi
 
-    if [[ $(id -u) -ne "0" ]]; then
+    if [[ $(id -u) != "0" ]]; then
         return 1
     fi
 
-    if [[ $USER -ne ${option_user} ]]; then
+    if [[ $(id -u -n) != ${option_user} ]]; then
         return 0
     fi
 
@@ -156,7 +154,6 @@ _server_start() {
             tmux \
                 set-option -g history-limit ${HISTORY_LIMIT} \; \
                 new-session -d -s "${option_name}" "${option_execute_command}"; then
-
             return 0
         else
             return 1
@@ -171,8 +168,12 @@ _server_stop() {
     fi
 
     if _server_status; then
-        tmux kill-session -t "${option_name}"
-        return 0
+        if _run_command tmux kill-session -t "${option_name}"; then
+            return 0
+        fi
+
+        echo "Couldn't stop a running server" >> /dev/stderr
+        return 1
     else
         echo "Couldn't find a running server" >> /dev/stderr
         return 1
@@ -188,18 +189,12 @@ _server_status() {
 }
 
 _server_get_console() {
-    local line
-    local result
-    result=$(_run_command tmux capture-pane -p -t "${option_name}" -S-)
-
-    while read -r line
-    do
-        echo "$line"
-    done <<< "${result}"
+    _run_command tmux capture-pane -p -t "${option_name}" -S-
 }
 
 _server_send_command() {
-    _run_command tmux send-keys -t "${option_name}" "${option_execute_command}" ENTER
+    local cmd=${option_execute_command// / SPACE }
+    _run_command tmux send-keys -t "${option_name}" "${cmd}" ENTER
 }
 
 _debug_command() {
