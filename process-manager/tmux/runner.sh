@@ -105,9 +105,16 @@ _run_command() {
     cd "${option_dir}" || return 1
 
     if _run_as_user; then
-        if su "${option_user}" -c '$*' -- -- ${cmd}; then
+        local tmpf
+        tmpf=$(mktemp -t runner.XXXXXXXXXX)
+        echo "${cmd}" > "${tmpf}"
+        chmod 666 "${tmpf}"
+
+        if su "${option_user}" -c "cat ${tmpf} | sh --"; then
+            rm -f "${tmpf}"
             return 0
         else
+            rm -f "${tmpf}"
             return 1
         fi
     else
@@ -152,7 +159,7 @@ _server_start() {
     else
         if _run_command \
             tmux \
-                set-option -g history-limit ${HISTORY_LIMIT} \; \
+                set-option -g history-limit ${HISTORY_LIMIT} \\\; \
                 new-session -d -s "${option_name}" "${option_execute_command}"; then
             return 0
         else
