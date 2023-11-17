@@ -99,7 +99,7 @@ _show_help() {
 }
 
 _run_command() {
-    local cmd="$@"
+    local cmd="$*"
     last_executed=$cmd
 
     cd "${option_dir}" || return 1
@@ -165,11 +165,20 @@ _server_start() {
         echo -e "Server is already running" >> /dev/stderr
         return 1
     else
-        if ! _run_command \
-            tmux \
-                new-session -d -s "${option_name}" "${option_execute_command}"; then
-            echo -e "Failed to make new tmux session" >> /dev/stderr
-            return 1
+        if [[ ${BASH_VERSINFO[0]} -eq 5 ]]; then
+          if ! _run_command \
+              tmux \
+                  new-session -d -s "${option_name}" "${option_execute_command}"; then
+              echo -e "Failed to make new tmux session" >> /dev/stderr
+              return 1
+          fi
+        else
+          if ! _run_command \
+              tmux \
+                  new-session -d -s "${option_name}" \"${option_execute_command}\"; then
+              echo -e "Failed to make new tmux session" >> /dev/stderr
+              return 1
+          fi
         fi
 
         if ! _run_command \
