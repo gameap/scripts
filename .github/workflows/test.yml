@@ -22,9 +22,9 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Set up dependencies
-        run: apt update -y && apt install tmux -y
+        run: sudo apt update -y && sudo apt install tmux -y
 
       - name: Run tests
         run: |
-          chmod +x ./process-manager/test.sh
-          ./process-manager/test.sh
+          sudo chmod +x ./process-manager/test.sh
+          sudo ./process-manager/test.sh
