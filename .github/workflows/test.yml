@@ -27,4 +27,4 @@ jobs:
       - name: Run tests
         run: |
           sudo chmod +x ./process-manager/tmux/test.sh
-          sudo ./process-manager/tmux/test.sh
+          cd ./process-manager/tmux/ && sudo ./test.sh
