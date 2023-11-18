@@ -104,19 +104,27 @@ _run_command() {
 
     cd "${option_dir}" || return 1
 
-    if _run_as_user; then
-        if [[ ${BASH_VERSINFO[0]} -eq 5 ]]; then
-          if su "${option_user}" -c '$*' -- -- ${cmd}; then
-              return 0
-          else
-              return 1
-          fi
+    if [[ ${BASH_VERSINFO[0]} -eq 5 ]]; then
+        if _run_as_user; then
+            if su "${option_user}" -c '$*' -- -- ${cmd}; then
+                return 0
+            else
+                return 1
+            fi
         else
-            local tmpf
-            tmpf=$(mktemp -t runner.XXXXXXXXXX)
-            echo "${cmd}" > "${tmpf}"
-            chmod 666 "${tmpf}"
+            if $cmd; then
+                return 0
+            else
+                return 1
+            fi
+        fi
+    else
+        local tmpf
+        tmpf=$(mktemp -t runner.XXXXXXXXXX)
+        echo "${cmd}" > "${tmpf}"
+        chmod 666 "${tmpf}"
 
+        if _run_as_user; then
             if su "${option_user}" -c "cat ${tmpf} | sh --"; then
                 rm -f "${tmpf}"
                 return 0
@@ -124,12 +132,12 @@ _run_command() {
                 rm -f "${tmpf}"
                 return 1
             fi
-        fi
-    else
-        if $cmd; then
-            return 0
         else
-            return 1
+            if cat ${tmpf} | sh --; then
+                return 0
+            else
+                return 1
+            fi
         fi
     fi
 }
@@ -218,13 +226,30 @@ _server_status() {
     fi
 }
 
+_find_pid() {
+    local pid
+
+    if [[ ${BASH_VERSINFO[0]} -eq 5 ]]; then
+        pid=$(_run_command tmux list-panes -t "${option_name}" -F "#{pane_pid}")
+    else
+        pid=$(_run_command tmux list-panes -t \"${option_name}\" -F \"#{pane_pid}\")
+    fi
+
+    echo ${pid}
+}
+
 _server_get_console() {
     _run_command tmux capture-pane -p -t "${option_name}" -S-
 }
 
 _server_send_command() {
     local cmd=${option_execute_command// / SPACE }
-    _run_command tmux send-keys -t "${option_name}" "${cmd}" ENTER
+
+    if [[ ${BASH_VERSINFO[0]} -eq 5 ]]; then
+        _run_command tmux send-keys -t "${option_name}" "${cmd}" ENTER
+    else
+        _run_command tmux send-keys -t \"${option_name}\" \"${cmd}\" ENTER
+    fi
 }
 
 _debug_command() {
@@ -284,11 +309,19 @@ main() {
 
     status)
         if _server_status; then
-           echo "Server is UP"
-           exit 0
+            echo "Server is UP"
+
+            local pid
+            pid=$(_find_pid)
+
+            if [[ ${pid} != "" ]]; then
+                echo "PID: $(_find_pid)"
+            fi
+
+            exit 0
         else
-           echo "Server is Down"
-           exit 1
+            echo "Server is Down"
+            exit 1
         fi
         ;;
 

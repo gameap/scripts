@@ -1,0 +1,30 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [ '*' ]
+  pull_request:
+    branches: [ '*' ]
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ 'ubuntu:18.04', 'ubuntu:22.04' ]
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.distro }}
+      options: --user root
+      volumes:
+        - /usr/local/share/ca-certificates:/usr/local/share/ca-certificates
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up dependencies
+        run: apt update -y && apt install tmux -y
+
+      - name: Run tests
+        run: |
+          chmod +x ./process-manager/test.sh
+          ./process-manager/test.sh
