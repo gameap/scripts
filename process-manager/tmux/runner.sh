@@ -176,14 +176,14 @@ _server_start() {
         if [[ ${BASH_VERSINFO[0]} -eq 5 ]]; then
           if ! _run_command \
               tmux \
-                  new-session -d -s "${option_name}" "${option_execute_command}"; then
+                  new-session -d -s "${option_name}" -x 200 "${option_execute_command}"; then
               echo -e "Failed to make new tmux session" >> /dev/stderr
               return 1
           fi
         else
           if ! _run_command \
               tmux \
-                  new-session -d -s "${option_name}" \"${option_execute_command}\"; then
+                  new-session -d -s "${option_name}" -x 200 \"${option_execute_command}\"; then
               echo -e "Failed to make new tmux session" >> /dev/stderr
               return 1
           fi
