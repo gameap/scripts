@@ -197,4 +197,3 @@ systemctl enable gameap-files
 systemctl start gameap-files
 
 echo "gameap-files installed successfully!"
-"${INSTALL_DIR}/gameap-files" --version
