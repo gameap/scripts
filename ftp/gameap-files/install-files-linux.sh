@@ -115,9 +115,9 @@ mv /tmp/gameap-files "${INSTALL_DIR}/gameap-files"
 mkdir -p "$CONFIG_DIR" "$USERS_DIR"
 
 # Generate SSH host key if not exists
-if [ ! -f "${CONFIG_DIR}/ssh_host_ed25519_key" ]; then
+if [ ! -f "${CONFIG_DIR}/ssh/host_ed25519_key" ]; then
     echo "Generating SSH host key..."
-    "${INSTALL_DIR}/gameap-files" genkey -t ed25519 -o "${CONFIG_DIR}/ssh_host_ed25519_key"
+    "${INSTALL_DIR}/gameap-files" genkey -t ed25519 -o "${CONFIG_DIR}/ssh/host_ed25519_key"
 fi
 
 # Create default config if not exists
