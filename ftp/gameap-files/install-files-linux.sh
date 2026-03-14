@@ -112,7 +112,7 @@ chmod +x /tmp/gameap-files
 mv /tmp/gameap-files "${INSTALL_DIR}/gameap-files"
 
 # Create directories
-mkdir -p "$CONFIG_DIR" "$USERS_DIR"
+mkdir -p "$CONFIG_DIR" "$USERS_DIR" "${CONFIG_DIR}/ssh" "${CONFIG_DIR}/tls"
 
 # Generate SSH host key if not exists
 if [ ! -f "${CONFIG_DIR}/ssh/host_ed25519_key" ]; then
