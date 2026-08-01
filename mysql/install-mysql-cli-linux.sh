@@ -30,6 +30,7 @@ GAMEAP_MYSQL_VERSION=""
 ALLOW_PRERELEASE=""
 LIST_VERSIONS=""
 SKIP_CHECKSUM=""
+REQUIRE_CHECKSUM=""
 DOWNLOAD_BASE=""
 INSTALL_DIR=""
 STATE_DIR=""
@@ -45,6 +46,8 @@ show_help() {
     echo "  --list-versions          Print the available releases and exit"
     echo "  --allow-prerelease       Consider prereleases when resolving 'latest'"
     echo "  --skip-checksum          Do not verify the published sha256 sum"
+    echo "  --require-checksum       Fail instead of warning when the sha256 sum cannot"
+    echo "                           be checked (missing sidecar, no hashing tool)"
     echo "  --install-dir=DIR        Binary directory (default: /usr/local/bin when writable,"
     echo "                           otherwise the directory of this script, then ~/.local/bin)"
     echo "  --state-dir=DIR          State directory (default: /var/lib/gameap-mysql as root,"
@@ -71,6 +74,9 @@ while [ $# -gt 0 ]; do
         --skip-checksum)
             SKIP_CHECKSUM="1"
             ;;
+        --require-checksum)
+            REQUIRE_CHECKSUM="1"
+            ;;
         --install-dir=*)
             INSTALL_DIR="${1#*=}"
             ;;
@@ -92,6 +98,11 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+if [ -n "$SKIP_CHECKSUM" ] && [ -n "$REQUIRE_CHECKSUM" ]; then
+    echo "--skip-checksum and --require-checksum are mutually exclusive" >&2
+    exit 1
+fi
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -335,6 +346,8 @@ _print_versions() {
 # METADATA_SOURCE, or leaves METADATA_FILE empty when every source failed.
 METADATA_FILE=""
 METADATA_SOURCE=""
+# Declared here too so the EXIT trap can reference it before the download step.
+TMP_FILE=""
 _fetch_metadata() {
     local idx tmp
     tmp="$(mktemp /tmp/gameap-mysql-releases.XXXXXX)"
@@ -363,9 +376,20 @@ _sha256_of() {
     fi
 }
 
-# Verify the download against the .sha256 published next to it. A missing
-# sidecar or a missing hashing tool only warns (older releases predate the
-# checksums); a mismatch fails so the caller moves on to the next source.
+# Not being able to check a sum is tolerated by default — releases predating
+# the checksums, or a node without a hashing tool, should still install — but
+# --require-checksum turns every such case into a failure.
+_checksum_unavailable() {
+    if [ -n "$REQUIRE_CHECKSUM" ]; then
+        echo "Checksum required but $1" >&2
+        return 1
+    fi
+    echo "Warning: $1, skipping verification" >&2
+    return 0
+}
+
+# Verify the download against the .sha256 published next to it. A mismatch
+# always fails, so the caller moves on to the next source.
 _verify_checksum() {
     local file="$1" url="$2" raw expected actual
 
@@ -374,19 +398,19 @@ _verify_checksum() {
     fi
 
     if ! raw="$(curl -fsSL --connect-timeout 10 --max-time 30 "${url}.sha256" 2>/dev/null)"; then
-        echo "Warning: no checksum published for this build, skipping verification" >&2
-        return 0
+        _checksum_unavailable "no checksum published for this build"
+        return $?
     fi
 
     expected="$(printf '%s\n' "${raw}" | awk 'NF { print $1; exit }')"
     if [ -z "${expected}" ]; then
-        echo "Warning: published checksum is empty, skipping verification" >&2
-        return 0
+        _checksum_unavailable "the published checksum is empty"
+        return $?
     fi
 
     if ! actual="$(_sha256_of "${file}")"; then
-        echo "Warning: neither sha256sum nor shasum is available, skipping verification" >&2
-        return 0
+        _checksum_unavailable "neither sha256sum nor shasum is available"
+        return $?
     fi
 
     if [ "${expected}" != "${actual}" ]; then
@@ -396,6 +420,16 @@ _verify_checksum() {
 
     echo "Checksum verified."
 }
+
+# One trap for every temp file, installed before the first one is created:
+# the resolution steps below have several exit paths, and `set -e` can end the
+# run anywhere in between. The explicit `rm -f` calls further down stay — they
+# free the metadata early, before a potentially long download — and re-running
+# rm on an already-removed or empty path is harmless.
+_cleanup() {
+    rm -f "${METADATA_FILE}" "${TMP_FILE}" 2>/dev/null || true
+}
+trap _cleanup EXIT
 
 resolve_install_dir
 resolve_state_dir
@@ -461,7 +495,6 @@ rm -f "$METADATA_FILE"
 METADATA_FILE=""
 
 TMP_FILE=$(mktemp /tmp/gameap-mysql.XXXXXX)
-trap 'rm -f "$TMP_FILE"' EXIT
 
 echo "Downloading ${COMPONENT} ${TAG} (${OS}-${ARCH})..."
 
