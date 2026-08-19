@@ -1,116 +1,80 @@
 #!/bin/bash
 
-# GameAP Files server installation script for Linux.
-# Resolves the requested release, downloads the gameap-files binary, writes the
-# configuration and installs the systemd unit.
+# GameAP Respawn CLI installation script for Linux.
+# Resolves the requested release, downloads the gameap-respawn binary,
+# prepares its state directory and — with --with-engine — lets the CLI fetch
+# its backup engine (restic). The engine is downloaded by the CLI, not by
+# this script: the release assets are bzip2 archives, and a minimal node has
+# no bunzip2, while Go's standard library does.
 #
 # Releases are looked up in three sources — GitHub (canonical) plus the
 # cdn.gameap.com / cdn.gameap.ru mirrors, which publish the verbatim GitHub
-# releases payload as <mirror>/gameap-files/releases.json. Without --version
+# releases payload as <mirror>/gameap-respawn/releases.json. Without --version
 # the newest stable release is installed.
 #
-# Invoked by the panel's Files plugin as a daemon task chain:
-#   get-tool .../ftp/gameap-files/install-files-linux.sh
-#   install-files-linux.sh --data-dir=/srv/gameap
+# Works both as root (system-wide: /usr/local/bin + /var/lib/gameap-respawn)
+# and from a rootless GameAP setup (non-root gameap-daemon): without write
+# access to /usr/local/bin the binary is installed next to this script —
+# the daemon tools directory, which gameap-daemon puts on its PATH — and the
+# state directory falls back to the user state dir the CLI resolves itself
+# (${XDG_STATE_HOME:-$HOME/.local/state}/gameap-respawn).
+#
+# Invoked by the panel's Respawn plugin as a daemon task chain:
+#   get-tool .../respawn/install-respawn-cli-linux.sh
+#   install-respawn-cli-linux.sh --version=latest --with-engine
 
 set -e
 
-COMPONENT="gameap-files"
-GITHUB_REPO="gameap/gameap-files"
-
-INSTALL_DIR="/usr/local/bin"
-CONFIG_DIR="/etc/gameap-files"
-USERS_DIR="${CONFIG_DIR}/users.d"
+COMPONENT="gameap-respawn"
+GITHUB_REPO="gameap/gameap-respawn"
 
 # Empty means "resolve the newest stable release".
-GAMEAP_FILES_VERSION=""
+GAMEAP_RESPAWN_VERSION=""
 ALLOW_PRERELEASE=""
 LIST_VERSIONS=""
 SKIP_CHECKSUM=""
 REQUIRE_CHECKSUM=""
 DOWNLOAD_BASE=""
-
-# Default values
-DATA_DIR=""
-FTP_LISTEN_ADDR=":21"
-FTP_PASSIVE_PORT_MIN="30000"
-FTP_PASSIVE_PORT_MAX="30100"
-FTP_PUBLIC_HOST=""
-FTP_TLS_ENABLED="false"
-FTP_TLS_IMPLICIT_PORT=":990"
-SFTP_LISTEN_ADDR=":2222"
+INSTALL_DIR=""
+STATE_DIR=""
+WITH_ENGINE=""
+ENGINE_VERSION=""
+CHECK_ONLY=""
 
 show_help() {
-    cat << EOF
-GameAP Files Server Installation Script
-
-Usage: $0 [OPTIONS]
-
-Required:
-    --data-dir=DIR              Data directory for game servers
-
-Server options:
-    --ftp-listen-address=ADDR   FTP listen address (default: :21)
-    --ftp-passive-port-min=N    FTP passive port range start (default: 30000)
-    --ftp-passive-port-max=N    FTP passive port range end (default: 30100)
-    --ftp-public-host=HOST      FTP public host for passive mode
-    --ftp-tls-enabled=BOOL      Enable FTP TLS (default: false)
-    --ftp-tls-implicit-port=N   FTP implicit TLS port (default: :990)
-    --sftp-listen-address=ADDR  SFTP listen address (default: :2222)
-
-Release options:
-    --version=VERSION           Release to install: 'latest' (default), or a
-                                version with or without the v prefix (1.0.0, v1.0.0)
-    --list-versions             Print the available releases and exit
-    --allow-prerelease          Consider prereleases when resolving 'latest'
-    --skip-checksum             Do not verify the published sha256 sum
-    --require-checksum          Fail instead of warning when the sha256 sum cannot
-                                be checked (missing sidecar, no hashing tool)
-    --download-base=URL         Use a single custom mirror instead of the default
-                                GitHub/CDN sources; expects URL/${COMPONENT}/releases.json
-                                and URL/${COMPONENT}/TAG/${COMPONENT}-TAG-OS-ARCH
-    --help                      Show this help message
-
-An existing config.yaml, users.d directory and SSH host key are never
-overwritten, so re-running the script upgrades the binary and the unit without
-touching the server's data.
-
-Examples:
-    $0 --data-dir=/home/servers
-    $0 --data-dir=/home/servers --ftp-listen-address=0.0.0.0:21 --sftp-listen-address=0.0.0.0:2222
-    $0 --data-dir=/home/servers --ftp-tls-enabled=true --ftp-public-host=example.com
-EOF
+    echo "GameAP Respawn CLI installation script"
+    echo
+    echo "Usage: $0 [options]"
+    echo
+    echo "Options:"
+    echo "  --version=VERSION        Release to install: 'latest' (default), or a"
+    echo "                           version with or without the v prefix (0.1.1, v0.1.1)"
+    echo "  --list-versions          Print the available releases and exit"
+    echo "  --allow-prerelease       Consider prereleases when resolving 'latest'"
+    echo "  --skip-checksum          Do not verify the published sha256 sum"
+    echo "  --require-checksum       Fail instead of warning when the sha256 sum cannot"
+    echo "                           be checked (missing sidecar, no hashing tool)"
+    echo "  --install-dir=DIR        Binary directory (default: /usr/local/bin when writable,"
+    echo "                           otherwise the directory of this script, then ~/.local/bin)"
+    echo "  --state-dir=DIR          State directory (default: /var/lib/gameap-respawn as root,"
+    echo "                           otherwise \${XDG_STATE_HOME:-\$HOME/.local/state}/gameap-respawn;"
+    echo "                           a custom value must also be exported to the daemon as"
+    echo "                           GAMEAP_RESPAWN_STATE_DIR or the CLI will not find it)"
+    echo "  --download-base=URL      Use a single custom mirror instead of the default"
+    echo "                           GitHub/CDN sources; expects URL/${COMPONENT}/releases.json"
+    echo "                           and URL/${COMPONENT}/TAG/${COMPONENT}-TAG-OS-ARCH"
+    echo "  --with-engine[=VERSION]  After installing the CLI, run"
+    echo "                           '${COMPONENT} install-engine' (optionally pinning an"
+    echo "                           engine version) so the node is ready to back up"
+    echo "  --check                  Report the installed CLI and engine versions and exit"
+    echo "                           without changing anything (exit 1 when unhealthy)"
+    echo "  --help                   Show this help"
 }
 
-# Parse command line arguments
 while [ $# -gt 0 ]; do
     case "$1" in
-        --data-dir=*)
-            DATA_DIR="${1#*=}"
-            ;;
-        --ftp-listen-address=*)
-            FTP_LISTEN_ADDR="${1#*=}"
-            ;;
-        --ftp-passive-port-min=*)
-            FTP_PASSIVE_PORT_MIN="${1#*=}"
-            ;;
-        --ftp-passive-port-max=*)
-            FTP_PASSIVE_PORT_MAX="${1#*=}"
-            ;;
-        --ftp-public-host=*)
-            FTP_PUBLIC_HOST="${1#*=}"
-            ;;
-        --ftp-tls-enabled=*)
-            FTP_TLS_ENABLED="${1#*=}"
-            ;;
-        --ftp-tls-implicit-port=*)
-            FTP_TLS_IMPLICIT_PORT="${1#*=}"
-            ;;
-        --sftp-listen-address=*)
-            SFTP_LISTEN_ADDR="${1#*=}"
-            ;;
         --version=*)
-            GAMEAP_FILES_VERSION="${1#*=}"
+            GAMEAP_RESPAWN_VERSION="${1#*=}"
             ;;
         --list-versions)
             LIST_VERSIONS="1"
@@ -124,16 +88,32 @@ while [ $# -gt 0 ]; do
         --require-checksum)
             REQUIRE_CHECKSUM="1"
             ;;
+        --install-dir=*)
+            INSTALL_DIR="${1#*=}"
+            ;;
+        --state-dir=*)
+            STATE_DIR="${1#*=}"
+            ;;
         --download-base=*)
             DOWNLOAD_BASE="${1#*=}"
             ;;
-        --help|-h)
+        --with-engine|--with-restic)
+            WITH_ENGINE="1"
+            ;;
+        --with-engine=*|--with-restic=*)
+            WITH_ENGINE="1"
+            ENGINE_VERSION="${1#*=}"
+            ;;
+        --check)
+            CHECK_ONLY="1"
+            ;;
+        --help)
             show_help
             exit 0
             ;;
         *)
-            echo "Unknown option: $1" >&2
-            echo "Use --help for usage information" >&2
+            echo "Unknown option: $1"
+            show_help
             exit 1
             ;;
     esac
@@ -145,14 +125,63 @@ if [ -n "$SKIP_CHECKSUM" ] && [ -n "$REQUIRE_CHECKSUM" ]; then
     exit 1
 fi
 
-# Detect OS and architecture
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
+
 case $ARCH in
-    x86_64) ARCH="amd64" ;;
-    aarch64|arm64) ARCH="arm64" ;;
-    *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;;
+    x86_64)
+        ARCH="amd64"
+        ;;
+    aarch64|arm64)
+        ARCH="arm64"
+        ;;
+    *)
+        echo "Unsupported architecture: $ARCH"
+        exit 1
+        ;;
 esac
+
+resolve_install_dir() {
+    if [ -n "$INSTALL_DIR" ]; then
+        return
+    fi
+
+    if [ -w /usr/local/bin ]; then
+        INSTALL_DIR="/usr/local/bin"
+        return
+    fi
+
+    script_dir=$(cd "$(dirname "$0")" && pwd)
+    if [ -w "$script_dir" ]; then
+        # get-tool drops this script into the daemon tools directory, which
+        # gameap-daemon prepends to its PATH — the natural rootless target.
+        INSTALL_DIR="$script_dir"
+        return
+    fi
+
+    INSTALL_DIR="${HOME}/.local/bin"
+}
+
+# Mirrors the CLI's own state-dir resolution (internal/platform): root uses
+# the system directory; a non-root daemon uses it only when pre-provisioned
+# writable, otherwise the XDG user state directory.
+resolve_state_dir() {
+    if [ -n "$STATE_DIR" ]; then
+        return
+    fi
+
+    if [ "$(id -u)" -eq 0 ]; then
+        STATE_DIR="/var/lib/gameap-respawn"
+        return
+    fi
+
+    if [ -d /var/lib/gameap-respawn ] && [ -w /var/lib/gameap-respawn ]; then
+        STATE_DIR="/var/lib/gameap-respawn"
+        return
+    fi
+
+    STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/gameap-respawn"
+}
 
 _url_host() {
     local host="${1#*://}"
@@ -235,7 +264,7 @@ _order_sources() {
     echo "Choosing the fastest ${COMPONENT} release source..."
 
     local probe_dir
-    probe_dir="$(mktemp -d -t gameap-files.XXXXXX)"
+    probe_dir="$(mktemp -d -t gameap-respawn.XXXXXX)"
 
     local i
     for i in "${!source_meta_urls[@]}"; do
@@ -342,7 +371,7 @@ METADATA_SOURCE=""
 TMP_FILE=""
 _fetch_metadata() {
     local idx tmp
-    tmp="$(mktemp /tmp/gameap-files-releases.XXXXXX)"
+    tmp="$(mktemp /tmp/gameap-respawn-releases.XXXXXX)"
 
     for idx in "${ordered_sources[@]}"; do
         if curl -fsSL --connect-timeout 10 --max-time 30 -o "${tmp}" "${source_meta_urls[$idx]}" \
@@ -423,6 +452,33 @@ _cleanup() {
 }
 trap _cleanup EXIT
 
+resolve_install_dir
+resolve_state_dir
+
+# --check: the panel uses this to see what a node has without reinstalling.
+if [ -n "$CHECK_ONLY" ]; then
+    if [ -x "${INSTALL_DIR}/${COMPONENT}" ]; then
+        cli_bin="${INSTALL_DIR}/${COMPONENT}"
+    elif command -v "$COMPONENT" >/dev/null 2>&1; then
+        cli_bin="$(command -v "$COMPONENT")"
+    else
+        echo "${COMPONENT} is not installed" >&2
+        exit 1
+    fi
+
+    if [ -n "$STATE_DIR" ]; then
+        export GAMEAP_RESPAWN_STATE_DIR="$STATE_DIR"
+    fi
+
+    output="$("$cli_bin" version --json 2>&1)" || true
+    echo "$output"
+
+    case "$output" in
+        *'"supported":true'*) exit 0 ;;
+        *) echo "the backup engine is missing or too old; run: ${cli_bin} install-engine" >&2; exit 1 ;;
+    esac
+fi
+
 _register_sources
 _order_sources
 _fetch_metadata
@@ -438,15 +494,8 @@ if [ -n "$LIST_VERSIONS" ]; then
     exit 0
 fi
 
-# Validate required parameters
-if [ -z "$DATA_DIR" ]; then
-    echo "Error: --data-dir is required" >&2
-    echo "Use --help for usage information" >&2
-    exit 1
-fi
-
 TAG=""
-if [ -z "$GAMEAP_FILES_VERSION" ] || [ "$GAMEAP_FILES_VERSION" = "latest" ]; then
+if [ -z "$GAMEAP_RESPAWN_VERSION" ] || [ "$GAMEAP_RESPAWN_VERSION" = "latest" ]; then
     if [ -z "$METADATA_FILE" ]; then
         echo "Failed to resolve the latest ${COMPONENT} version. Sources tried:" >&2
         printf '  - %s\n' "${source_meta_urls[@]}" >&2
@@ -461,9 +510,9 @@ if [ -z "$GAMEAP_FILES_VERSION" ] || [ "$GAMEAP_FILES_VERSION" = "latest" ]; the
     fi
     echo "Latest ${COMPONENT} release: ${TAG} (via ${METADATA_SOURCE})"
 elif [ -n "$METADATA_FILE" ]; then
-    TAG="$(_resolve_tag "$METADATA_FILE" "$GAMEAP_FILES_VERSION")"
+    TAG="$(_resolve_tag "$METADATA_FILE" "$GAMEAP_RESPAWN_VERSION")"
     if [ -z "$TAG" ]; then
-        echo "Release '${GAMEAP_FILES_VERSION}' not found. Available releases:" >&2
+        echo "Release '${GAMEAP_RESPAWN_VERSION}' not found. Available releases:" >&2
         _print_versions "$METADATA_FILE" >&2
         rm -f "$METADATA_FILE"
         exit 1
@@ -471,9 +520,9 @@ elif [ -n "$METADATA_FILE" ]; then
 else
     # No metadata anywhere: fall back to the tag convention (vX.Y.Z) and let
     # the download surface the failure.
-    case "$GAMEAP_FILES_VERSION" in
-        v*) TAG="$GAMEAP_FILES_VERSION" ;;
-        *)  TAG="v${GAMEAP_FILES_VERSION}" ;;
+    case "$GAMEAP_RESPAWN_VERSION" in
+        v*) TAG="$GAMEAP_RESPAWN_VERSION" ;;
+        *)  TAG="v${GAMEAP_RESPAWN_VERSION}" ;;
     esac
     echo "Warning: no release source answered; assuming tag ${TAG}." >&2
 fi
@@ -490,9 +539,9 @@ fi
 rm -f "$METADATA_FILE"
 METADATA_FILE=""
 
-TMP_FILE=$(mktemp /tmp/gameap-files.XXXXXX)
+TMP_FILE=$(mktemp /tmp/gameap-respawn.XXXXXX)
 
-echo "Installing ${COMPONENT} ${TAG} (${OS}-${ARCH})..."
+echo "Downloading ${COMPONENT} ${TAG} (${OS}-${ARCH})..."
 
 downloaded=""
 tried_urls=()
@@ -524,89 +573,29 @@ fi
 mkdir -p "$INSTALL_DIR"
 install -m 0755 "$TMP_FILE" "${INSTALL_DIR}/${COMPONENT}"
 
-# Create directories
-mkdir -p "$CONFIG_DIR" "$USERS_DIR" "${CONFIG_DIR}/ssh" "${CONFIG_DIR}/tls"
+install -d -m 0700 "$STATE_DIR"
 
-# Generate SSH host key if not exists
-if [ ! -f "${CONFIG_DIR}/ssh/host_ed25519_key" ]; then
-    echo "Generating SSH host key..."
-    "${INSTALL_DIR}/gameap-files" genkey -t ed25519 -o "${CONFIG_DIR}/ssh/host_ed25519_key"
+echo "Verifying installation..."
+"${INSTALL_DIR}/${COMPONENT}" version --json
+
+echo "${COMPONENT} ${TAG} installed to ${INSTALL_DIR}/${COMPONENT} (state: ${STATE_DIR})"
+
+if [ -n "$WITH_ENGINE" ]; then
+    echo "Installing the backup engine through ${COMPONENT}..."
+
+    engine_args=(install-engine --json)
+    if [ -n "$ENGINE_VERSION" ]; then
+        engine_args+=("--engine-version=${ENGINE_VERSION}")
+    fi
+
+    # The CLI resolves the same state directory this script did; passing it
+    # explicitly covers a custom --state-dir that is not exported yet.
+    if ! GAMEAP_RESPAWN_STATE_DIR="$STATE_DIR" "${INSTALL_DIR}/${COMPONENT}" "${engine_args[@]}" | tee /dev/stderr | grep -q '"code":"OK"'; then
+        echo "engine installation failed; the CLI is installed, run '${COMPONENT} install-engine' to retry" >&2
+        exit 1
+    fi
 fi
 
-# Create default config if not exists
-if [ ! -f "${CONFIG_DIR}/config.yaml" ]; then
-    echo "Creating configuration..."
-    cat > "${CONFIG_DIR}/config.yaml" << EOF
-server:
-  name: "GameAP Files Server"
-  data_dir: "${DATA_DIR}"
-
-ftp:
-  enabled: true
-  listen_addr: "${FTP_LISTEN_ADDR}"
-  passive_port_min: ${FTP_PASSIVE_PORT_MIN}
-  passive_port_max: ${FTP_PASSIVE_PORT_MAX}
-  public_host: "${FTP_PUBLIC_HOST}"
-  idle_timeout: 300
-  tls:
-    enabled: ${FTP_TLS_ENABLED}
-    cert_file: "/etc/gameap-files/tls/server.crt"
-    key_file: "/etc/gameap-files/tls/server.key"
-    implicit_port: "${FTP_TLS_IMPLICIT_PORT}"
-    required: false
-
-sftp:
-  enabled: true
-  listen_addr: "${SFTP_LISTEN_ADDR}"
-  host_key_file: "/etc/gameap-files/ssh/host_ed25519_key"
-  idle_timeout: 300
-
-security:
-  argon2:
-    memory: 65536
-    iterations: 3
-    parallelism: 4
-    salt_length: 16
-    key_length: 32
-  rate_limit:
-    max_failures: 5
-    window_duration: 15m
-    block_duration: 30m
-
-logging:
-  level: "info"
-  format: "json"
-  output: "stdout"
-  audit_log: ""
-
-users:
-  directory: "/etc/gameap-files/users.d"
-  hot_reload: true
-EOF
+if [ "$INSTALL_DIR" != "/usr/local/bin" ]; then
+    echo "Note: rootless install — gameap-daemon resolves the binary by name via its tools PATH."
 fi
-
-# Install systemd service
-echo "Installing systemd service..."
-cat > /etc/systemd/system/gameap-files.service << 'EOF'
-[Unit]
-Description=GameAP Files Server
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/gameap-files serve -c /etc/gameap-files/config.yaml
-Restart=always
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Enable and start service
-systemctl daemon-reload
-systemctl enable gameap-files
-systemctl restart gameap-files
-
-echo "gameap-files ${TAG} installed successfully!"
