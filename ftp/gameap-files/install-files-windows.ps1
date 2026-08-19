@@ -29,6 +29,8 @@ param(
     [int]$FtpPassivePortMax = 30100,
     [string]$FtpPublicHost = "",
     [switch]$FtpTlsEnabled,
+    [string]$FtpTlsCertFile = "",
+    [string]$FtpTlsKeyFile = "",
     [string]$FtpTlsImplicitPort = ":990",
     [string]$SftpListenAddress = ":2222",
 
@@ -81,7 +83,10 @@ Server options:
   -FtpPassivePortMin N      FTP passive port range start (default: 30000)
   -FtpPassivePortMax N      FTP passive port range end (default: 30100)
   -FtpPublicHost HOST       FTP public host for passive mode
-  -FtpTlsEnabled            Enable FTP TLS
+  -FtpTlsEnabled            Enable FTP TLS (requires server.crt and server.key in
+                            <ConfigDir>\tls; see -FtpTlsCertFile / -FtpTlsKeyFile)
+  -FtpTlsCertFile PATH      Certificate to copy to <ConfigDir>\tls\server.crt
+  -FtpTlsKeyFile PATH       Private key to copy to <ConfigDir>\tls\server.key
   -FtpTlsImplicitPort PORT  FTP implicit TLS port (default: :990)
   -SftpListenAddress ADDR   SFTP listen address (default: :2222)
 
@@ -138,10 +143,14 @@ if ($SkipChecksum -and $RequireChecksum) {
 # Windows PowerShell 5.1 negotiates SSL3/TLS 1.0 by default, which GitHub and the
 # CDN both refuse. 3072 is Tls12 as a literal: on .NET 4.0-era systems the named
 # enum member does not exist and referencing it fails to parse. -bor keeps
-# whatever the administrator has already enabled.
+# whatever the administrator has already enabled. SystemDefault (0) is left
+# alone: it defers the protocol choice to the OS, which already negotiates TLS
+# 1.2+ - and the named enum member does not exist on .NET 4.0 either.
 try {
-    [Net.ServicePointManager]::SecurityProtocol =
-        [Net.ServicePointManager]::SecurityProtocol -bor 3072
+    if ([Net.ServicePointManager]::SecurityProtocol -ne 0) {
+        [Net.ServicePointManager]::SecurityProtocol =
+            [Net.ServicePointManager]::SecurityProtocol -bor 3072
+    }
 } catch {
     Write-Warning "Could not enable TLS 1.2; downloads from GitHub will most likely fail."
 }
@@ -308,7 +317,8 @@ function Get-OrderedSources {
     $probe = {
         param($url)
 
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        [Net.ServicePointManager]::SecurityProtocol =
+            [Net.ServicePointManager]::SecurityProtocol -bor 3072
 
         $watch = [Diagnostics.Stopwatch]::StartNew()
         try {
@@ -684,7 +694,12 @@ function Add-FirewallRule {
     $existing = Invoke-NativeCommand -FilePath "netsh.exe" `
         -Arguments @("advfirewall", "firewall", "show", "rule", "name=$Name") -IgnoreExitCode
     if ($existing.ExitCode -eq 0) {
-        Write-Host "  $Name already exists, skipping"
+        Invoke-NativeCommand -FilePath "netsh.exe" -Arguments @(
+            "advfirewall", "firewall", "set", "rule",
+            "name=$Name", "new", "localport=$LocalPort"
+        ) -ErrorMessage "Failed to update firewall rule $Name" | Out-Null
+
+        Write-Host "  $Name updated to TCP $LocalPort"
         return
     }
 
@@ -879,6 +894,25 @@ if (-not (Test-Path -LiteralPath $sshKeyPath)) {
     Write-Host "Generating SSH host key..."
     Invoke-NativeCommand -FilePath $binaryPath -Arguments @("genkey", "-t", "ed25519", "-o", $sshKeyPath) `
         -ErrorMessage "Failed to generate the SSH host key" | Out-Null
+}
+
+# A TLS-enabled configuration without both files makes the service fail at
+# startup, so this is checked before the configuration is written.
+if ($FtpTlsEnabled) {
+    $tlsDir = [IO.Path]::Combine($ConfigDir, "tls")
+    $tlsCertPath = [IO.Path]::Combine($tlsDir, "server.crt")
+    $tlsKeyPath = [IO.Path]::Combine($tlsDir, "server.key")
+
+    if ($FtpTlsCertFile) {
+        Copy-Item -LiteralPath $FtpTlsCertFile -Destination $tlsCertPath -Force
+    }
+    if ($FtpTlsKeyFile) {
+        Copy-Item -LiteralPath $FtpTlsKeyFile -Destination $tlsKeyPath -Force
+    }
+
+    if (-not (Test-Path -LiteralPath $tlsCertPath -PathType Leaf) -or -not (Test-Path -LiteralPath $tlsKeyPath -PathType Leaf)) {
+        Exit-WithError "-FtpTlsEnabled needs a certificate and a private key at $tlsCertPath and $tlsKeyPath - put them there or pass -FtpTlsCertFile and -FtpTlsKeyFile."
+    }
 }
 
 if ((Test-Path -LiteralPath $configPath) -and -not $Force) {

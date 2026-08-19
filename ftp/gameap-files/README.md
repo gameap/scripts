@@ -40,6 +40,11 @@ Use `-InstallDir` and `-ConfigDir` to place them elsewhere.
 The installer also opens the FTP, passive, SFTP and — with `-FtpTlsEnabled` — implicit FTPS
 ports in Windows Firewall. Pass `-SkipFirewall` to leave the firewall alone.
 
+With `-FtpTlsEnabled` the server expects a certificate and a private key at
+`config\tls\server.crt` and `config\tls\server.key` (under `-ConfigDir`). Place them there
+beforehand or pass `-FtpTlsCertFile` and `-FtpTlsKeyFile` and the installer copies them in;
+if either file is missing, the installer stops before writing a TLS-enabled configuration.
+
 Run with `-Help` for the full option list, or `-ListVersions` for the available releases.
 
 ### shawl is a prerequisite

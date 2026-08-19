@@ -245,10 +245,11 @@ function Get-OrderedSources {
     $probe = {
         param($url)
 
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-
         $watch = [Diagnostics.Stopwatch]::StartNew()
         try {
+            [Net.ServicePointManager]::SecurityProtocol =
+                [Net.ServicePointManager]::SecurityProtocol -bor 3072
+
             $request = [Net.WebRequest]::Create($url)
             $request.Method = "HEAD"
             $request.Timeout = 10000
@@ -536,6 +537,10 @@ if ($ListVersions) {
     Write-Host "Available $COMPONENT releases (from $($metadata.Source.Name)):"
     Show-Versions -Releases $metadata.Releases
     exit 0
+}
+
+if ($InstallDir -eq "C:\gameap\tools\gameap-respawn" -and -not (Test-Administrator)) {
+    Exit-WithError "Administrator privileges are required to install to $InstallDir. Re-run from an elevated session, or pass -InstallDir inside your user profile."
 }
 
 $tag = $null

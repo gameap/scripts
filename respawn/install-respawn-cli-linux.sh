@@ -590,7 +590,12 @@ if [ -n "$WITH_ENGINE" ]; then
 
     # The CLI resolves the same state directory this script did; passing it
     # explicitly covers a custom --state-dir that is not exported yet.
-    if ! GAMEAP_RESPAWN_STATE_DIR="$STATE_DIR" "${INSTALL_DIR}/${COMPONENT}" "${engine_args[@]}" | tee /dev/stderr | grep -q '"code":"OK"'; then
+    engine_output=""
+    engine_status=0
+    engine_output="$(GAMEAP_RESPAWN_STATE_DIR="$STATE_DIR" "${INSTALL_DIR}/${COMPONENT}" "${engine_args[@]}")" || engine_status=$?
+    printf '%s\n' "$engine_output" >&2
+
+    if [ "$engine_status" -ne 0 ] || ! grep -q '"code":"OK"' <<< "$engine_output"; then
         echo "engine installation failed; the CLI is installed, run '${COMPONENT} install-engine' to retry" >&2
         exit 1
     fi
