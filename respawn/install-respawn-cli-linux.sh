@@ -2,10 +2,9 @@
 
 # GameAP Respawn CLI installation script for Linux.
 # Resolves the requested release, downloads the gameap-respawn binary,
-# prepares its state directory and — with --with-engine — lets the CLI fetch
-# its backup engine (restic). The engine is downloaded by the CLI, not by
-# this script: the release assets are bzip2 archives, and a minimal node has
-# no bunzip2, while Go's standard library does.
+# prepares its state directory and checks that the node can actually run the
+# backup engine. The engine (restic) travels inside the CLI binary, so nothing
+# here downloads it and a node needs no access to restic's release hosting.
 #
 # Releases are looked up in three sources — GitHub (canonical) plus the
 # cdn.gameap.com / cdn.gameap.ru mirrors, which publish the verbatim GitHub
@@ -21,7 +20,7 @@
 #
 # Invoked by the panel's Respawn plugin as a daemon task chain:
 #   get-tool .../respawn/install-respawn-cli-linux.sh
-#   install-respawn-cli-linux.sh --version=latest --with-engine
+#   install-respawn-cli-linux.sh --version=latest
 
 set -e
 
@@ -37,8 +36,6 @@ REQUIRE_CHECKSUM=""
 DOWNLOAD_BASE=""
 INSTALL_DIR=""
 STATE_DIR=""
-WITH_ENGINE=""
-ENGINE_VERSION=""
 CHECK_ONLY=""
 
 show_help() {
@@ -63,9 +60,6 @@ show_help() {
     echo "  --download-base=URL      Use a single custom mirror instead of the default"
     echo "                           GitHub/CDN sources; expects URL/${COMPONENT}/releases.json"
     echo "                           and URL/${COMPONENT}/TAG/${COMPONENT}-TAG-OS-ARCH"
-    echo "  --with-engine[=VERSION]  After installing the CLI, run"
-    echo "                           '${COMPONENT} install-engine' (optionally pinning an"
-    echo "                           engine version) so the node is ready to back up"
     echo "  --check                  Report the installed CLI and engine versions and exit"
     echo "                           without changing anything (exit 1 when unhealthy)"
     echo "  --help                   Show this help"
@@ -96,13 +90,6 @@ while [ $# -gt 0 ]; do
             ;;
         --download-base=*)
             DOWNLOAD_BASE="${1#*=}"
-            ;;
-        --with-engine|--with-restic)
-            WITH_ENGINE="1"
-            ;;
-        --with-engine=*|--with-restic=*)
-            WITH_ENGINE="1"
-            ENGINE_VERSION="${1#*=}"
             ;;
         --check)
             CHECK_ONLY="1"
@@ -475,7 +462,7 @@ if [ -n "$CHECK_ONLY" ]; then
 
     case "$output" in
         *'"supported":true'*) exit 0 ;;
-        *) echo "the backup engine is missing or too old; run: ${cli_bin} install-engine" >&2; exit 1 ;;
+        *) echo "the backup engine is missing or too old; reinstall ${COMPONENT}" >&2; exit 1 ;;
     esac
 fi
 
@@ -576,30 +563,22 @@ install -m 0755 "$TMP_FILE" "${INSTALL_DIR}/${COMPONENT}"
 install -d -m 0700 "$STATE_DIR"
 
 echo "Verifying installation..."
-"${INSTALL_DIR}/${COMPONENT}" version --json
+
+# --verify-engine unpacks the engine the CLI carries and runs it. Everything
+# else in the handshake is a fact of the build, so this is the only step that
+# can catch a node where unpacking will never work: no space, a noexec state
+# directory, a security policy that blocks the binary.
+verify_output=""
+verify_status=0
+verify_output="$(GAMEAP_RESPAWN_STATE_DIR="$STATE_DIR" "${INSTALL_DIR}/${COMPONENT}" version --json --verify-engine)" || verify_status=$?
+printf '%s\n' "$verify_output"
+
+if [ "$verify_status" -ne 0 ] || ! grep -q '"verified":true' <<< "$verify_output"; then
+    echo "the backup engine could not be unpacked on this node; ${COMPONENT} is installed but cannot run" >&2
+    exit 1
+fi
 
 echo "${COMPONENT} ${TAG} installed to ${INSTALL_DIR}/${COMPONENT} (state: ${STATE_DIR})"
-
-if [ -n "$WITH_ENGINE" ]; then
-    echo "Installing the backup engine through ${COMPONENT}..."
-
-    engine_args=(install-engine --json)
-    if [ -n "$ENGINE_VERSION" ]; then
-        engine_args+=("--engine-version=${ENGINE_VERSION}")
-    fi
-
-    # The CLI resolves the same state directory this script did; passing it
-    # explicitly covers a custom --state-dir that is not exported yet.
-    engine_output=""
-    engine_status=0
-    engine_output="$(GAMEAP_RESPAWN_STATE_DIR="$STATE_DIR" "${INSTALL_DIR}/${COMPONENT}" "${engine_args[@]}")" || engine_status=$?
-    printf '%s\n' "$engine_output" >&2
-
-    if [ "$engine_status" -ne 0 ] || ! grep -q '"code":"OK"' <<< "$engine_output"; then
-        echo "engine installation failed; the CLI is installed, run '${COMPONENT} install-engine' to retry" >&2
-        exit 1
-    fi
-fi
 
 if [ "$INSTALL_DIR" != "/usr/local/bin" ]; then
     echo "Note: rootless install — gameap-daemon resolves the binary by name via its tools PATH."

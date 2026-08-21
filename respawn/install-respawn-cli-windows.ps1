@@ -3,11 +3,10 @@
 <#
 GameAP Respawn CLI installation script for Windows.
 
-Resolves the requested release, downloads the gameap-respawn binary and, with
--WithEngine, lets the CLI fetch its backup engine (restic). The engine is
-downloaded by the CLI, not by this script: it knows the release layout,
-verifies the published checksums and unpacks the zip archive without any
-extra tools.
+Resolves the requested release, downloads the gameap-respawn binary and checks
+that the node can actually run the backup engine. The engine (restic) travels
+inside the CLI binary, so nothing here downloads it and a node needs no access
+to restic's release hosting.
 
 Releases are looked up in three sources - GitHub (canonical) plus the
 cdn.gameap.com / cdn.gameap.ru mirrors, which publish the verbatim GitHub
@@ -16,7 +15,7 @@ the newest stable release is installed.
 
 Invoked by the panel's Respawn plugin as a daemon task chain:
   get-tool .../respawn/install-respawn-cli-windows.ps1
-  powershell -NoProfile -ExecutionPolicy Bypass -File install-respawn-cli-windows.ps1 -WithEngine
+  powershell -NoProfile -ExecutionPolicy Bypass -File install-respawn-cli-windows.ps1
 #>
 
 param(
@@ -29,10 +28,6 @@ param(
 
     [string]$InstallDir = "C:\gameap\tools\gameap-respawn",
     [string]$StateDir = "",
-    [Alias("WithRestic")]
-    [switch]$WithEngine,
-    [Alias("ResticVersion")]
-    [string]$EngineVersion = "",
     [switch]$Check,
     [switch]$Help
 )
@@ -75,10 +70,6 @@ Installation options:
   -StateDir DIR             State directory (default: %ProgramData%\GameAP\gameap-respawn;
                             a custom value must also reach the daemon as
                             GAMEAP_RESPAWN_STATE_DIR or the CLI will not find it)
-  -WithEngine               After installing the CLI, run '$COMPONENT install-engine'
-                            so the node is ready to back up
-  -EngineVersion VERSION    engine version for -WithEngine (default: the one the
-                            CLI was tested against)
   -Check                    Report the installed CLI and engine versions and exit
                             without changing anything (exit 1 when unhealthy)
   -Help                     Show this help
@@ -519,7 +510,7 @@ if ($Check) {
         exit 0
     }
 
-    Exit-WithError "the backup engine is missing or too old; run: $cli install-engine"
+    Exit-WithError "the backup engine is missing or too old; reinstall $COMPONENT"
 }
 
 $arch = $null
@@ -590,24 +581,17 @@ try {
 }
 
 Write-Host "Verifying installation..."
-$verify = Invoke-NativeCommand -FilePath $binaryPath -Arguments @("version", "--json") -ErrorMessage "$COMPONENT does not run on this node"
-Write-Host (($verify.Output | Out-String).TrimEnd())
+
+# --verify-engine unpacks the engine the CLI carries and runs it. Everything
+# else in the handshake is a fact of the build, so this is the only step that
+# can catch a node where unpacking will never work: no space, a policy that
+# blocks a freshly written executable, an unwritable state directory.
+$verify = Invoke-NativeCommand -FilePath $binaryPath -Arguments @("version", "--json", "--verify-engine") -IgnoreExitCode
+$verifyText = ($verify.Output | Out-String)
+Write-Host $verifyText.TrimEnd()
+
+if ($verifyText -notmatch '"verified":true') {
+    Exit-WithError "the backup engine could not be unpacked on this node; $COMPONENT is installed but cannot run"
+}
 
 Write-Host "$COMPONENT $tag installed to $binaryPath"
-
-if ($WithEngine) {
-    Write-Host "Installing the backup engine through $COMPONENT..."
-
-    $arguments = @("install-engine", "--json")
-    if ($EngineVersion) {
-        $arguments += "--engine-version=$EngineVersion"
-    }
-
-    $install = Invoke-NativeCommand -FilePath $binaryPath -Arguments $arguments -IgnoreExitCode
-    $text = ($install.Output | Out-String)
-    Write-Host $text.TrimEnd()
-
-    if ($text -notmatch '"code":"OK"') {
-        Exit-WithError "engine installation failed; the CLI is installed, run '$binaryPath install-engine' to retry"
-    }
-}
