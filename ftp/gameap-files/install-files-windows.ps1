@@ -16,6 +16,11 @@ service control protocol, so the service is a shawl wrapper - the same process
 manager gameap-daemon and gameapctl already use. shawl is expected to be present
 (gameapctl installs it to C:\gameap\tools\shawl); this script does not fetch it.
 
+The configuration lives in <DataDir>\.plugins\files: gameap-daemon confines the
+panel's Files plugin to the data directory, so that is the only place the panel
+can manage users. A configuration left in <InstallDir>\config by an earlier
+release is migrated on the first run.
+
 Invoked by the panel's Files plugin as a daemon task chain:
   get-tool .../ftp/gameap-files/install-files-windows.ps1
   powershell -NoProfile -ExecutionPolicy Bypass -File install-files-windows.ps1 -DataDir C:\gameap\servers
@@ -43,12 +48,14 @@ param(
 
     [string]$InstallDir = "C:\gameap\tools\gameap-files",
     [string]$ConfigDir = "",
+    [string]$LegacyConfigDir = "",
     [string]$LogDir = "",
     [string]$ShawlPath = "",
     [string]$ServiceName = "gameap-files",
     [switch]$SkipFirewall,
     [switch]$FixDataDirAcl,
     [switch]$Force,
+    [switch]$Check,
     [switch]$Help
 )
 
@@ -76,7 +83,8 @@ GameAP Files Server installation script for Windows
 Usage: powershell -NoProfile -ExecutionPolicy Bypass -File install-files-windows.ps1 [options]
 
 Required:
-  -DataDir DIR              Data directory for game servers
+  -DataDir DIR              Data directory for game servers (the gameap-daemon
+                            work path); the configuration is kept inside it
 
 Server options:
   -FtpListenAddress ADDR    FTP listen address (default: :21)
@@ -104,7 +112,10 @@ Release options:
 
 Installation options:
   -InstallDir DIR           Binary directory (default: C:\gameap\tools\gameap-files)
-  -ConfigDir DIR            Configuration directory (default: <InstallDir>\config)
+  -ConfigDir DIR            Configuration directory (default: <DataDir>\.plugins\files)
+  -LegacyConfigDir DIR      Configuration directory of an earlier install, migrated
+                            into -ConfigDir on the first run (default: the directory
+                            the installed service points at, then <InstallDir>\config)
   -LogDir DIR               Service log directory
                             (default: C:\gameap\services\logs\<ServiceName>)
   -ShawlPath PATH           shawl.exe to wrap the service with
@@ -117,16 +128,22 @@ Installation options:
                             has been broken)
   -Force                    Regenerate config.yaml even if it already exists
                             (the previous file is kept as config.yaml.bak)
+  -Check                    Report the installed version, paths and service state
+                            and exit without changing anything (exit 1 when not
+                            installed)
   -Help                     Show this help
 
 An existing users.d directory and SSH host key are never touched, and config.yaml
 is only rewritten with -Force, so re-running the script upgrades the binary and
-the service without losing the server's data.
+the service without losing the server's data. A configuration left in
+<InstallDir>\config by an earlier release is migrated into -ConfigDir on the
+first run.
 
 Examples:
-  ... -File install-files-windows.ps1 -DataDir C:\gameap\servers
-  ... -File install-files-windows.ps1 -DataDir C:\gameap\servers -FtpListenAddress 0.0.0.0:21
-  ... -File install-files-windows.ps1 -DataDir C:\gameap\servers -FtpTlsEnabled -FtpPublicHost example.com
+  ... -File install-files-windows.ps1 -DataDir C:\gameap
+  ... -File install-files-windows.ps1 -DataDir C:\gameap -FtpListenAddress 0.0.0.0:21
+  ... -File install-files-windows.ps1 -DataDir C:\gameap -FtpTlsEnabled -FtpPublicHost example.com
+  ... -File install-files-windows.ps1 -DataDir C:\gameap -Check
 "@
 }
 
@@ -632,6 +649,128 @@ users:
 }
 
 # ---------------------------------------------------------------------------
+# Migration from an earlier layout
+
+# The service command line records where an earlier install put its
+# configuration, so it can be found without repeating a custom -ConfigDir here.
+function Get-ServiceConfigDir {
+    param([string]$Name)
+
+    $svc = Get-CimInstance Win32_Service -Filter "Name='$Name'" -ErrorAction SilentlyContinue
+    if ($svc -and $svc.PathName -match '\s-c\s+"?(.+?\.yaml)"?(\s|$)') {
+        return (Split-Path -Parent $Matches[1]).TrimEnd("\", "/")
+    }
+
+    return $null
+}
+
+# The directory an earlier release kept its configuration in, or $null when
+# there is nothing to migrate. Only a directory other than -ConfigDir that holds
+# a config.yaml counts.
+function Resolve-LegacyConfigDir {
+    $candidates = @()
+    if ($LegacyConfigDir) {
+        $candidates += $LegacyConfigDir.TrimEnd("\", "/")
+    } else {
+        $fromService = Get-ServiceConfigDir -Name $ServiceName
+        if ($fromService) { $candidates += $fromService }
+        $candidates += [IO.Path]::Combine($InstallDir, "config")
+    }
+
+    foreach ($dir in $candidates) {
+        if ($dir -ne $ConfigDir -and (Test-Path -LiteralPath ([IO.Path]::Combine($dir, "config.yaml")) -PathType Leaf)) {
+            return $dir
+        }
+    }
+
+    return $null
+}
+
+# The binary moves users.d, ssh and tls, rewrites the paths inside config.yaml
+# and removes the moved files from the source. It does nothing when the
+# destination already holds a config.yaml, so it is safe to run again.
+function Invoke-ConfigMigration {
+    param([string]$Binary, [string]$From, [string]$To)
+
+    Write-Host "Migrating the configuration from $From to $To..."
+    $result = Invoke-NativeCommand -FilePath $Binary -Arguments @("migrate", "--from", $From, "--to", $To) `
+        -ErrorMessage "Failed to migrate the configuration from $From (nothing new was written; the previous files stay where they are)"
+    if ($result.Output) {
+        Write-Host (($result.Output | Out-String).TrimEnd())
+    }
+}
+
+function Get-InstalledVersion {
+    param([string]$Binary)
+
+    $result = Invoke-NativeCommand -FilePath $Binary -Arguments @("version") -IgnoreExitCode
+    if ($result.ExitCode -ne 0) { return $null }
+
+    if (($result.Output | Out-String) -match 'v?\d+\.\d+\.\d+') { return $Matches[0] }
+
+    return $null
+}
+
+# -Check: describe the installation without changing anything. Returns the
+# exit code.
+function Show-InstallStatus {
+    $binary = [IO.Path]::Combine($InstallDir, "$COMPONENT.exe")
+    $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
+    $serviceConfig = $null
+    if ($service) {
+        $imagePath = (Get-CimInstance Win32_Service -Filter "Name='$ServiceName'" -ErrorAction SilentlyContinue).PathName
+        if ($imagePath -match '\s-c\s+"?(.+?\.yaml)"?(\s|$)') { $serviceConfig = $Matches[1] }
+        if (-not (Test-Path -LiteralPath $binary -PathType Leaf) -and $imagePath -match '"?([A-Za-z]:\\[^"]*?gameap-files\.exe)"?') {
+            $binary = $Matches[1]
+        }
+    }
+
+    if (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
+        $command = Get-Command "$COMPONENT.exe" -ErrorAction SilentlyContinue
+        if ($command) {
+            $binary = $command.Source
+        } else {
+            [Console]::Error.WriteLine("$COMPONENT is not installed (looked for $binary and the $ServiceName service)")
+            return 1
+        }
+    }
+
+    $version = Get-InstalledVersion -Binary $binary
+    $statusConfigPath = [IO.Path]::Combine($ConfigDir, "config.yaml")
+    $statusUsersDir = [IO.Path]::Combine($ConfigDir, "users.d")
+
+    $configState = if (Test-Path -LiteralPath $statusConfigPath -PathType Leaf) { "present" } else { "missing" }
+    $usersState = if (Test-Path -LiteralPath $statusUsersDir -PathType Container) {
+        "$(@(Get-ChildItem -LiteralPath $statusUsersDir -File | Where-Object { $_.Name -match '\.ya?ml$' }).Count) user files"
+    } else {
+        "missing"
+    }
+    $serviceState = if ($service) { "$($service.Status)" } else { "not installed" }
+
+    $legacy = Resolve-LegacyConfigDir
+    $migration = if ($configState -eq "present") {
+        if ($legacy) { "done (leftovers at $legacy, safe to remove)" } else { "not needed" }
+    } elseif ($legacy) {
+        "pending from $legacy (the next install run migrates it)"
+    } else {
+        "not needed (fresh install)"
+    }
+
+    Write-Host "$COMPONENT $(if ($version) { $version } else { 'unknown version' })"
+    Write-Host "  binary:    $binary"
+    Write-Host "  data dir:  $(if ($DataDir) { $DataDir } else { 'unknown' })"
+    Write-Host "  config:    $statusConfigPath ($configState)"
+    Write-Host "  users:     $statusUsersDir ($usersState)"
+    Write-Host "  service:   $ServiceName ($serviceState)"
+    if ($serviceConfig -and $serviceConfig -ne $statusConfigPath) {
+        Write-Host "             the service still uses $serviceConfig; re-run the installer"
+    }
+    Write-Host "  migration: $migration"
+
+    return 0
+}
+
+# ---------------------------------------------------------------------------
 # Service account and permissions
 
 # NETWORK SERVICE, as the well-known SID. icacls takes the SID directly with a
@@ -788,11 +927,16 @@ function Install-GameapFilesService {
 # Everything that can be rejected without touching the network is checked first,
 # so a malformed invocation fails immediately instead of after the mirror probes.
 if (-not $ListVersions) {
-    if (-not $DataDir) {
+    if (-not $DataDir -and -not ($Check -and $ConfigDir)) {
         Exit-WithError "-DataDir is required. Use -Help for usage information."
     }
 
-    if (-not (Test-Administrator)) {
+    if ($DataDir -and -not [IO.Path]::IsPathRooted($DataDir)) {
+        Exit-WithError "-DataDir must be an absolute path."
+    }
+
+    # -Check only reads, so it does not need elevation.
+    if (-not $Check -and -not (Test-Administrator)) {
         Exit-WithError "Administrator privileges are required to install the service and firewall rules."
     }
 
@@ -810,8 +954,12 @@ if ($ConfigDir) { $ConfigDir = $ConfigDir.TrimEnd("\", "/") }
 if ($LogDir) { $LogDir = $LogDir.TrimEnd("\", "/") }
 if ($DataDir) { $DataDir = $DataDir.TrimEnd("\", "/") }
 
-if (-not $ConfigDir) { $ConfigDir = [IO.Path]::Combine($InstallDir, "config") }
+if (-not $ConfigDir) { $ConfigDir = [IO.Path]::Combine($DataDir, ".plugins\files") }
 if (-not $LogDir) { $LogDir = [IO.Path]::Combine("C:\gameap\services\logs", $ServiceName) }
+
+if ($Check) {
+    exit (Show-InstallStatus)
+}
 
 $arch = $null
 $shawl = $null
@@ -873,6 +1021,10 @@ $configPath = [IO.Path]::Combine($ConfigDir, "config.yaml")
 $usersDir = [IO.Path]::Combine($ConfigDir, "users.d")
 $sshKeyPath = [IO.Path]::Combine($ConfigDir, "ssh\host_ed25519_key")
 
+# Resolved before the service is removed: the service command line is where an
+# earlier install recorded its configuration directory.
+$legacyDir = Resolve-LegacyConfigDir
+
 $tempFile = [IO.Path]::GetTempFileName()
 try {
     Write-Host "Downloading $COMPONENT $tag (windows-$arch)..."
@@ -888,6 +1040,12 @@ try {
     Copy-Item -LiteralPath $tempFile -Destination $binaryPath -Force
 } finally {
     Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+}
+
+# The service is stopped and gone at this point, so no handle on users.d (the
+# hot-reload watcher) can block the move.
+if ($legacyDir -and -not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
+    Invoke-ConfigMigration -Binary $binaryPath -From $legacyDir -To $ConfigDir
 }
 
 if (-not (Test-Path -LiteralPath $sshKeyPath)) {
@@ -939,6 +1097,8 @@ Write-Host "Granting $account access to the data and configuration directories..
 # service logs are the two places it writes to (it calls MkdirAll on a user's
 # home directory at every login).
 Grant-PathAccess -Path $InstallDir -Permission "RX" -Recurse
+# (OI)(CI) makes the grant inheritable, so the user files gameap-daemon writes
+# into users.d later (as LocalSystem) come out readable for the service too.
 Grant-PathAccess -Path $ConfigDir -Permission "R" -Recurse
 Grant-PathAccess -Path $LogDir -Permission "M" -Recurse
 # Deliberately not recursive: a data directory can hold millions of game server
@@ -982,8 +1142,12 @@ if ($service.Status -ne "Running") {
 
 Write-Host ""
 Write-Host "$COMPONENT $tag installed successfully."
-Write-Host "  binary:  $binaryPath"
-Write-Host "  config:  $configPath"
-Write-Host "  users:   $usersDir"
-Write-Host "  logs:    $LogDir"
-Write-Host "  service: $ServiceName ($($service.Status))"
+Write-Host "  binary:   $binaryPath"
+Write-Host "  config:   $configPath"
+Write-Host "  users:    $usersDir"
+Write-Host "  data dir: $DataDir"
+Write-Host "  logs:     $LogDir"
+Write-Host "  service:  $ServiceName ($($service.Status))"
+if ($legacyDir) {
+    Write-Host "  migrated: from $legacyDir"
+}
