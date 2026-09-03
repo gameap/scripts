@@ -196,17 +196,22 @@ if (Test-Path -LiteralPath $LogDir) {
 
 if ($Purge) {
     # The configuration directory sits inside the data directory; only that
-    # directory goes, never the data directory or a drive root.
-    $trimmedConfigDir = $ConfigDir.TrimEnd("\", "/")
-    if (($DataDir -and $trimmedConfigDir -eq $DataDir.TrimEnd("\", "/")) -or
-        $trimmedConfigDir -eq [IO.Path]::GetPathRoot($ConfigDir).TrimEnd("\", "/")) {
-        throw "Refusing to purge $ConfigDir: it is the data directory or a drive root."
+    # directory goes, never the data directory or a drive root. Both paths are
+    # normalised first - "C:/gameap" and "C:\gameap\servers\.." name the data
+    # directory without comparing equal to it as strings - and the normalised
+    # path is the one deleted, so the check and the removal cannot disagree.
+    $purgeDir = [IO.Path]::GetFullPath($ConfigDir)
+    $trimmedConfigDir = $purgeDir.TrimEnd("\", "/")
+    $trimmedDataDir = if ($DataDir) { [IO.Path]::GetFullPath($DataDir).TrimEnd("\", "/") } else { "" }
+    if (($trimmedDataDir -and $trimmedConfigDir -eq $trimmedDataDir) -or
+        $trimmedConfigDir -eq [IO.Path]::GetPathRoot($purgeDir).TrimEnd("\", "/")) {
+        throw "Refusing to purge ${ConfigDir}: it is the data directory or a drive root."
     }
 
-    if (Test-Path -LiteralPath $ConfigDir) {
+    if (Test-Path -LiteralPath $purgeDir) {
         Write-Warning "-Purge also deletes the SFTP host key: every SFTP client will report a changed host key after a reinstall, and all users.d accounts are lost."
-        Write-Host "Removing $ConfigDir (-Purge; the rest of the data directory is not touched)..."
-        Remove-Item -LiteralPath $ConfigDir -Recurse -Force
+        Write-Host "Removing $purgeDir (-Purge; the rest of the data directory is not touched)..."
+        Remove-Item -LiteralPath $purgeDir -Recurse -Force
     }
 
     # Only remove the install directory once it is empty: a custom -ConfigDir may

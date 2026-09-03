@@ -18,11 +18,15 @@ data is lost.
 
 ## Where the configuration lives
 
-The configuration is kept **inside the data directory**, in `<data-dir>/.plugins/files/`
-(`config.yaml`, `users.d/`, `ssh/`, `tls/`). That is the service directory the panel keeps for
-its Files plugin on every node, and the only place the panel can write to: gameap-daemon
-confines plugin file operations to the node work path, which is the data directory. The server
-itself keeps the directory out of every FTP/SFTP client's reach.
+By default the configuration is kept **inside the data directory**, in
+`<data-dir>/.plugins/files/` (`config.yaml`, `users.d/`, `ssh/`, `tls/`). That is the service
+directory the panel keeps for its Files plugin on every node, and the only place the panel can
+write to: gameap-daemon confines plugin file operations to the node work path, which is the data
+directory. The server itself keeps the directory out of every FTP/SFTP client's reach.
+
+`--config-dir` / `-ConfigDir` may point somewhere outside the data directory, but such an
+installation is standalone: the panel cannot reach that path, so its users have to be managed on
+the node itself.
 
 ### Migration from an earlier layout
 
@@ -126,6 +130,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File uninstall-files-windows.ps1
 ```
 
 Removes the service, the firewall rules, the binary and the logs. The configuration, `users.d`
-and the SSH host key are kept unless `-Purge` is given, which removes `<DataDir>\.plugins\files`
-and nothing else. Game server files are never touched, and shawl is left in place because
-gameap-daemon shares it.
+and the SSH host key are kept unless `-Purge` is given, which also deletes the configuration
+directory it resolved: `-ConfigDir` when passed, otherwise the one recorded in the installed
+service, then `<DataDir>\.plugins\files`, then `<InstallDir>\config`. It refuses when that path
+is the data directory or a drive root, and it removes the install directory only when nothing is
+left in it. Game server files are never touched, and shawl is left in place because gameap-daemon
+shares it.

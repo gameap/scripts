@@ -740,8 +740,14 @@ function Show-InstallStatus {
     $statusUsersDir = [IO.Path]::Combine($ConfigDir, "users.d")
 
     $configState = if (Test-Path -LiteralPath $statusConfigPath -PathType Leaf) { "present" } else { "missing" }
+    # A directory that exists but cannot be enumerated must not abort the whole
+    # report: the top-level trap would turn it into a bare exit 1.
     $usersState = if (Test-Path -LiteralPath $statusUsersDir -PathType Container) {
-        "$(@(Get-ChildItem -LiteralPath $statusUsersDir -File | Where-Object { $_.Name -match '\.ya?ml$' }).Count) user files"
+        try {
+            "$(@(Get-ChildItem -LiteralPath $statusUsersDir -File -ErrorAction Stop | Where-Object { $_.Name -match '\.ya?ml$' }).Count) user files"
+        } catch {
+            "unreadable"
+        }
     } else {
         "missing"
     }
