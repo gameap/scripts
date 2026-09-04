@@ -694,7 +694,7 @@ function Invoke-ConfigMigration {
 
     Write-Host "Migrating the configuration from $From to $To..."
     $result = Invoke-NativeCommand -FilePath $Binary -Arguments @("migrate", "--from", $From, "--to", $To) `
-        -ErrorMessage "Failed to migrate the configuration from $From (nothing new was written; the previous files stay where they are)"
+        -ErrorMessage "Failed to migrate the configuration from $From (no configuration was written to $To, so the next run retries; the previous files stay where they are)"
     if ($result.Output) {
         Write-Host (($result.Output | Out-String).TrimEnd())
     }

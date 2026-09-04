@@ -542,7 +542,7 @@ MSG
 
     echo "Migrating the configuration from ${LEGACY_CONFIG_DIR} to ${CONFIG_DIR}..."
     if ! "$BINARY" migrate --from "$LEGACY_CONFIG_DIR" --to "$CONFIG_DIR"; then
-        echo "Error: migration failed; nothing new was written and the previous files stay where they are. Fix the problem and re-run." >&2
+        echo "Error: migration failed; the destination has no configuration yet, so the next run retries it, and the previous files stay where they are. Fix the problem and re-run." >&2
         exit 1
     fi
 }
