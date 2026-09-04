@@ -13,6 +13,7 @@ The game server data directory is never touched.
 param(
     [string]$InstallDir = "C:\gameap\tools\gameap-files",
     [string]$ConfigDir = "",
+    [string]$DataDir = "",
     [string]$LogDir = "",
     [string]$ServiceName = "gameap-files",
     [switch]$Purge,
@@ -41,11 +42,16 @@ Usage: powershell -NoProfile -ExecutionPolicy Bypass -File uninstall-files-windo
 Options:
   -InstallDir DIR    Binary directory (default: C:\gameap\tools\gameap-files)
   -ConfigDir DIR     Configuration directory (default: read back from the
-                     installed service, then <InstallDir>\config)
+                     installed service, then <DataDir>\.plugins\files when
+                     -DataDir is given, then <InstallDir>\config)
+  -DataDir DIR       Data directory, used to locate <DataDir>\.plugins\files when
+                     no service is registered
   -LogDir DIR        Service log directory
                      (default: C:\gameap\services\logs\<ServiceName>)
   -ServiceName NAME  Windows service name (default: gameap-files)
-  -Purge             Also delete the configuration, users.d and the SSH host key
+  -Purge             Also delete the configuration directory (users.d and the
+                     SSH host key included); nothing else in the data directory
+                     is touched
   -Help              Show this help
 
 Without -Purge the configuration directory is left in place, so reinstalling
@@ -142,6 +148,7 @@ if ($service -and -not $PSBoundParameters.ContainsKey("ConfigDir")) {
     }
 }
 
+if (-not $ConfigDir -and $DataDir) { $ConfigDir = [IO.Path]::Combine($DataDir.TrimEnd("\", "/"), ".plugins\files") }
 if (-not $ConfigDir) { $ConfigDir = [IO.Path]::Combine($InstallDir, "config") }
 if (-not $LogDir) { $LogDir = [IO.Path]::Combine("C:\gameap\services\logs", $ServiceName) }
 
@@ -188,10 +195,23 @@ if (Test-Path -LiteralPath $LogDir) {
 }
 
 if ($Purge) {
-    if (Test-Path -LiteralPath $ConfigDir) {
+    # The configuration directory sits inside the data directory; only that
+    # directory goes, never the data directory or a drive root. Both paths are
+    # normalised first - "C:/gameap" and "C:\gameap\servers\.." name the data
+    # directory without comparing equal to it as strings - and the normalised
+    # path is the one deleted, so the check and the removal cannot disagree.
+    $purgeDir = [IO.Path]::GetFullPath($ConfigDir)
+    $trimmedConfigDir = $purgeDir.TrimEnd("\", "/")
+    $trimmedDataDir = if ($DataDir) { [IO.Path]::GetFullPath($DataDir).TrimEnd("\", "/") } else { "" }
+    if (($trimmedDataDir -and $trimmedConfigDir -eq $trimmedDataDir) -or
+        $trimmedConfigDir -eq [IO.Path]::GetPathRoot($purgeDir).TrimEnd("\", "/")) {
+        throw "Refusing to purge ${ConfigDir}: it is the data directory or a drive root."
+    }
+
+    if (Test-Path -LiteralPath $purgeDir) {
         Write-Warning "-Purge also deletes the SFTP host key: every SFTP client will report a changed host key after a reinstall, and all users.d accounts are lost."
-        Write-Host "Removing $ConfigDir (-Purge)..."
-        Remove-Item -LiteralPath $ConfigDir -Recurse -Force
+        Write-Host "Removing $purgeDir (-Purge; the rest of the data directory is not touched)..."
+        Remove-Item -LiteralPath $purgeDir -Recurse -Force
     }
 
     # Only remove the install directory once it is empty: a custom -ConfigDir may
