@@ -13,9 +13,11 @@ cdn.gameap.com / cdn.gameap.ru mirrors, which publish the verbatim GitHub
 releases payload as <mirror>/gameap-respawn/releases.json. Without -ReleaseVersion
 the newest stable release is installed.
 
-Invoked by the panel's Respawn plugin as a daemon task chain:
+Invoked by the panel's Respawn plugin as a daemon task chain; the daemon
+expands {node_tools_path} to its tools directory (<work_path>\tools), which is
+where get-tool put this script and where the binary is installed:
   get-tool .../respawn/install-respawn-cli-windows.ps1
-  powershell -NoProfile -ExecutionPolicy Bypass -File install-respawn-cli-windows.ps1
+  powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{node_tools_path}/install-respawn-cli-windows.ps1" -ReleaseVersion latest -InstallDir "{node_tools_path}/gameap-respawn"
 #>
 
 param(
@@ -66,7 +68,9 @@ Release options:
                             and URL/$COMPONENT/TAG/$COMPONENT-TAG-windows-ARCH.exe
 
 Installation options:
-  -InstallDir DIR           Binary directory (default: C:\gameap\tools\gameap-respawn)
+  -InstallDir DIR           Binary directory (default: C:\gameap\tools\gameap-respawn;
+                            the panel passes the daemon tools directory). Must be
+                            writable by the account running this script.
   -StateDir DIR             State directory (default: %ProgramData%\GameAP\gameap-respawn;
                             a custom value must also reach the daemon as
                             GAMEAP_RESPAWN_STATE_DIR or the CLI will not find it)
@@ -107,10 +111,22 @@ function Exit-WithError {
     exit 1
 }
 
-function Test-Administrator {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+# Whether this account can create files in $Path (created when missing). The
+# daemon runs the installer under its own account - not necessarily an
+# administrator, and administrator rights are not what a tools directory
+# needs - so the directory is probed rather than the token.
+function Test-DirectoryWritable {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    try {
+        [IO.Directory]::CreateDirectory($Path) | Out-Null
+        $probe = [IO.Path]::Combine($Path, ".write-probe-$PID")
+        [IO.File]::WriteAllText($probe, "")
+        [IO.File]::Delete($probe)
+        return $true
+    } catch {
+        return $false
+    }
 }
 
 # Native executables do not raise PowerShell errors, so $ErrorActionPreference
@@ -482,6 +498,23 @@ function Save-Binary {
 # ---------------------------------------------------------------------------
 # Main
 
+# The panel passes -InstallDir through the daemon's placeholder expansion,
+# which joins with a forward slash (C:\gameap/tools/gameap-respawn); one
+# canonical spelling keeps the probe, the copy and the messages consistent.
+# A relative directory is resolved from the caller's location: PowerShell does
+# not keep the .NET process directory GetFullPath would use in step with
+# Set-Location.
+if (-not $InstallDir) {
+    Exit-WithError "-InstallDir must not be empty."
+}
+if (-not [IO.Path]::IsPathRooted($InstallDir)) {
+    $InstallDir = Join-Path $PWD.ProviderPath $InstallDir
+}
+$InstallDir = [IO.Path]::GetFullPath($InstallDir)
+if ($InstallDir -ne [IO.Path]::GetPathRoot($InstallDir)) {
+    $InstallDir = $InstallDir.TrimEnd("\")
+}
+
 $binaryPath = [IO.Path]::Combine($InstallDir, "$COMPONENT.exe")
 
 if ($StateDir) {
@@ -530,8 +563,8 @@ if ($ListVersions) {
     exit 0
 }
 
-if ($InstallDir -eq "C:\gameap\tools\gameap-respawn" -and -not (Test-Administrator)) {
-    Exit-WithError "Administrator privileges are required to install to $InstallDir. Re-run from an elevated session, or pass -InstallDir inside your user profile."
+if (-not (Test-DirectoryWritable -Path $InstallDir)) {
+    Exit-WithError "Cannot write to $InstallDir. Re-run from an elevated session, or pass -InstallDir pointing to a directory this account can write to."
 }
 
 $tag = $null
