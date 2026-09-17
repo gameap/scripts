@@ -15,7 +15,10 @@ the newest stable release is installed.
 
 Invoked by the panel's Respawn plugin as a daemon task chain; the daemon
 expands {node_tools_path} to its tools directory (<work_path>\tools), which is
-where get-tool put this script and where the binary is installed:
+where get-tool put this script and where the binary is installed. The stale
+copy is removed first because get-tool resumes onto an existing file instead
+of replacing it:
+  powershell -NoProfile -NonInteractive -Command "Remove-Item -LiteralPath '{node_tools_path}/install-respawn-cli-windows.ps1' -Force -ErrorAction SilentlyContinue"
   get-tool .../respawn/install-respawn-cli-windows.ps1
   powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{node_tools_path}/install-respawn-cli-windows.ps1" -ReleaseVersion latest -InstallDir "{node_tools_path}/gameap-respawn"
 #>

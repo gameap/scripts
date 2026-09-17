@@ -4,14 +4,20 @@ Installers for `gameap-respawn`, the node-side CLI of the GameAP Respawn
 (backups) plugin. The plugin runs them on a node as a daemon task chain:
 
 ```
+rm -f '{node_tools_path}/install-respawn-cli-linux.sh' '{node_work_path}/install-respawn-cli-linux.sh'
 get-tool https://raw.githubusercontent.com/gameap/scripts/master/respawn/install-respawn-cli-linux.sh
 install-respawn-cli-linux.sh --version=latest
 ```
 
 ```
+powershell -NoProfile -NonInteractive -Command "Remove-Item -LiteralPath '{node_tools_path}/install-respawn-cli-windows.ps1' -Force -ErrorAction SilentlyContinue"
 get-tool https://raw.githubusercontent.com/gameap/scripts/master/respawn/install-respawn-cli-windows.ps1
 powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{node_tools_path}/install-respawn-cli-windows.ps1" -ReleaseVersion latest -InstallDir "{node_tools_path}/gameap-respawn"
 ```
+
+The first task removes the copy an earlier run left behind: `get-tool` resumes
+a download onto an existing file instead of replacing it, which splices two
+versions of a changed script together.
 
 `get-tool` saves a script into the daemon tools directory (`<work_path>\tools`
 on Windows) and puts that directory on the daemon's PATH, which is how the

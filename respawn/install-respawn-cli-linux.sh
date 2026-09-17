@@ -18,7 +18,10 @@
 # state directory falls back to the user state dir the CLI resolves itself
 # (${XDG_STATE_HOME:-$HOME/.local/state}/gameap-respawn).
 #
-# Invoked by the panel's Respawn plugin as a daemon task chain:
+# Invoked by the panel's Respawn plugin as a daemon task chain; the stale copy
+# is removed first because get-tool resumes onto an existing file instead of
+# replacing it:
+#   rm -f '{node_tools_path}/install-respawn-cli-linux.sh' '{node_work_path}/install-respawn-cli-linux.sh'
 #   get-tool .../respawn/install-respawn-cli-linux.sh
 #   install-respawn-cli-linux.sh --version=latest
 
